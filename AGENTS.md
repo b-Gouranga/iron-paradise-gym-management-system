@@ -61,7 +61,7 @@ Do not use Prisma unless explicitly requested later.
 
 ## Current status
 
-Part 1 is complete. Part 2 has not been implemented. The project is at the foundation stage; future work must follow [REQUIREMENTS.md](REQUIREMENTS.md).
+Parts 1 and 2 are complete. The project now has the Supabase database foundation; future work must follow [REQUIREMENTS.md](REQUIREMENTS.md) and must not begin Part 3 unless explicitly requested.
 
 ### Verified Part 1 implementation
 
@@ -74,13 +74,14 @@ Part 1 is complete. Part 2 has not been implemented. The project is at the found
 - A Node.js, Express, TypeScript backend in `backend/` with `GET /api/health`.
 - Separate TypeScript configurations and root scripts for development, type checking, and builds.
 - A root `README.md` with setup and run instructions.
+- A Supabase SQL migration at `supabase/migrations/001_initial_schema.sql` defining the database foundation, relationships, indexes, constraints, immutable history records, and deny-by-default Row Level Security.
+- Browser-safe and server-only Supabase client factories. The server-only factory uses `SUPABASE_SERVICE_ROLE_KEY`; that key must never be exposed to the frontend.
 
 ### Not implemented in Part 1
 
-- Supabase configuration or database schema.
 - Authentication or authorization.
-- Real business workflows, payments, reports, reminders, audit logging, or API resources beyond health.
-- An environment template file is not currently present, despite the README referring to one.
+- Real business workflows, payments, reports, reminders, audit logging workflows, or API resources beyond health.
+- RLS policies; they are intentionally deferred to Part 3 with owner/trainer authentication.
 
 ## Commands
 
@@ -91,4 +92,3 @@ npm run dev
 npm run typecheck
 npm run build
 ```
-
