@@ -1,0 +1,2 @@
+import { Construction } from 'lucide-react'
+export function EmptyState({ title }: { title: string }) { return <div className="panel flex min-h-[360px] flex-col items-center justify-center p-8 text-center"><div className="rounded-2xl bg-brand/10 p-4 text-brand"><Construction size={30}/></div><h2 className="mt-5 text-xl font-bold text-white">{title} is coming soon</h2><p className="mt-2 max-w-sm text-sm leading-6 text-zinc-400">This section is part of the Iron Paradise foundation and will be built in a future release.</p></div> }

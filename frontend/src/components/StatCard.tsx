@@ -1,0 +1,3 @@
+import { ArrowUpRight } from 'lucide-react'
+import { Card } from './Card'
+export function StatCard({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) { const color = tone === 'green' ? 'text-emerald-400' : tone === 'amber' ? 'text-amber-400' : 'text-brand'; return <Card className="p-5"><div className="flex items-start justify-between"><p className="text-sm font-medium text-zinc-400">{label}</p><ArrowUpRight size={17} className={color} /></div><p className="mt-4 text-2xl font-bold tracking-tight text-white">{value}</p><p className={`mt-2 text-xs font-medium ${color}`}>{detail}</p></Card> }

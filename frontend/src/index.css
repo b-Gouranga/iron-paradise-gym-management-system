@@ -1,0 +1,13 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base { body { @apply min-h-screen bg-[#111113] font-sans text-zinc-100 antialiased; } }
+@layer components {
+  .panel { @apply rounded-2xl border border-white/[.07] bg-panel shadow-card; }
+  .nav-link { @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:bg-white/[.06] hover:text-white; }
+  .nav-link-active { @apply bg-brand/15 text-white ring-1 ring-brand/20; }
+  .table-head { @apply whitespace-nowrap px-5 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-zinc-500; }
+  .table-cell { @apply whitespace-nowrap px-5 py-4 text-sm text-zinc-300; }
+}

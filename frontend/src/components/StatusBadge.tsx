@@ -1,0 +1,3 @@
+import type { Status } from '../types'
+const styles: Record<Status, string> = { Active: 'bg-emerald-400/10 text-emerald-300', 'Expiring Soon': 'bg-amber-400/10 text-amber-300', Expired: 'bg-red-400/10 text-red-300', Unpaid: 'bg-zinc-400/10 text-zinc-300', 'Partially Paid': 'bg-amber-400/10 text-amber-300', Paid: 'bg-emerald-400/10 text-emerald-300', Overdue: 'bg-red-400/10 text-red-300', Scheduled: 'bg-sky-400/10 text-sky-300', Delivered: 'bg-emerald-400/10 text-emerald-300', Failed: 'bg-red-400/10 text-red-300' }
+export function StatusBadge({ status }: { status: Status }) { return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${styles[status]}`}>{status}</span> }

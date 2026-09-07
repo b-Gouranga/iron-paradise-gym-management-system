@@ -1,0 +1,2 @@
+import type { ReactNode } from 'react'
+export function DataTable({ headers, children }: { headers: string[]; children: ReactNode }) { return <div className="overflow-x-auto"><table className="min-w-full"><thead><tr className="border-b border-white/[.07]">{headers.map(h => <th key={h} className="table-head">{h}</th>)}</tr></thead><tbody className="divide-y divide-white/[.06]">{children}</tbody></table></div> }
