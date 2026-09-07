@@ -20,19 +20,20 @@ export type ReminderStatus = 'scheduled' | 'sent' | 'delivered' | 'failed' | 'ca
 export interface Database {
   public: {
     Tables: {
-      profiles: { Row: ProfileRow }
-      members: { Row: MemberRow }
-      membership_plans: { Row: MembershipPlanRow }
-      memberships: { Row: MembershipRow }
-      payments: { Row: PaymentRow }
-      reminder_settings: { Row: ReminderSettingRow }
-      message_templates: { Row: MessageTemplateRow }
-      reminders: { Row: ReminderRow }
-      message_history: { Row: MessageHistoryRow }
-      audit_logs: { Row: AuditLogRow }
+      profiles: { Row: ProfileRow; Insert: Partial<ProfileRow>; Update: Partial<ProfileRow> }
+      members: { Row: MemberRow; Insert: Partial<MemberRow>; Update: Partial<MemberRow> }
+      membership_plans: { Row: MembershipPlanRow; Insert: Partial<MembershipPlanRow>; Update: Partial<MembershipPlanRow> }
+      memberships: { Row: MembershipRow; Insert: Partial<MembershipRow>; Update: Partial<MembershipRow> }
+      payments: { Row: PaymentRow; Insert: Partial<PaymentRow>; Update: Partial<PaymentRow> }
+      reminder_settings: { Row: ReminderSettingRow; Insert: Partial<ReminderSettingRow>; Update: Partial<ReminderSettingRow> }
+      message_templates: { Row: MessageTemplateRow; Insert: Partial<MessageTemplateRow>; Update: Partial<MessageTemplateRow> }
+      reminders: { Row: ReminderRow; Insert: Partial<ReminderRow>; Update: Partial<ReminderRow> }
+      message_history: { Row: MessageHistoryRow; Insert: Partial<MessageHistoryRow>; Update: Partial<MessageHistoryRow> }
+      audit_logs: { Row: AuditLogRow; Insert: Partial<AuditLogRow>; Update: Partial<AuditLogRow> }
     }
   }
 }
+
 
 export interface ProfileRow { id: string; full_name: string; email: string; phone: string | null; role: ProfileRole; is_active: boolean; created_at: string; updated_at: string }
 export interface MemberRow { id: string; member_code: string; full_name: string; phone: string; email: string | null; address: string | null; date_of_birth: string | null; joining_date: string; notes: string | null; status: MemberStatus; created_at: string; updated_at: string }
