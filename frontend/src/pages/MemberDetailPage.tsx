@@ -53,10 +53,23 @@ const formatINR = (amount: number): string =>
     maximumFractionDigits: 0,
   }).format(amount)
 
-function mapMembershipStatus(status: string): Status {
-  if (status === 'active') return 'Active'
-  if (status === 'expired') return 'Expired'
+function mapMembershipStatus(
+  status: string,
+  startDate?: string,
+  expiryDate?: string,
+): Status {
   if (status === 'cancelled') return 'Cancelled'
+  const today = new Date().toISOString().split('T')[0]
+  if (startDate && startDate > today) return 'Future'
+  if (expiryDate && expiryDate < today) return 'Expired'
+  if (startDate && expiryDate && startDate <= today && expiryDate >= today) {
+    const in7Days = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
+    if (expiryDate <= in7Days) return 'Expiring Soon'
+    return 'Active'
+  }
+  if (status === 'future') return 'Future'
+  if (status === 'expired') return 'Expired'
+  if (status === 'active') return 'Active'
   return 'Inactive'
 }
 
@@ -444,7 +457,9 @@ export function MemberDetailPage() {
                             <span className="text-xs text-zinc-500">
                               ({m.duration_value} {m.duration_unit})
                             </span>
-                            <StatusBadge status={mapMembershipStatus(m.status)} />
+                            <StatusBadge
+                              status={mapMembershipStatus(m.status, m.start_date, m.expiry_date)}
+                            />
                             {mPayment && (
                               <span
                                 className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${

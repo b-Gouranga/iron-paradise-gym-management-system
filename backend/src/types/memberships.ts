@@ -5,7 +5,7 @@
 
 import type { DurationUnit } from './membershipPlans.js'
 
-export type MembershipStatus = 'active' | 'expired' | 'cancelled'
+export type MembershipStatus = 'active' | 'expired' | 'cancelled' | 'future'
 
 export interface MembershipRow {
   id: string

@@ -167,7 +167,7 @@ export async function generateReminders(): Promise<ReminderGenerationResult> {
     supabase
       .from('memberships')
       .select(
-        'id, member_id, actual_fee, payment_due_date, expiry_date, status, membership_plans(name), members(id, full_name, member_code, phone, status)',
+        'id, member_id, start_date, actual_fee, payment_due_date, expiry_date, status, membership_plans(name), members(id, full_name, member_code, phone, status)',
       ),
     supabase.from('payments').select('membership_id, amount'),
   ])
@@ -189,6 +189,7 @@ export async function generateReminders(): Promise<ReminderGenerationResult> {
   interface RawMembership {
     id: string
     member_id: string
+    start_date: string
     actual_fee: number
     payment_due_date: string | null
     expiry_date: string
@@ -234,22 +235,22 @@ export async function generateReminders(): Promise<ReminderGenerationResult> {
     // Evaluate each of the 5 stages
     const candidateStages: ReminderStage[] = []
 
-    // 1. 7 days before expiry
-    if (ms.status === 'active' && ms.expiry_date === in7Days) {
+    // 1. 7 days before expiry (only active memberships whose start date has arrived)
+    if (ms.status !== 'cancelled' && ms.start_date <= today && ms.expiry_date === in7Days) {
       candidateStages.push('membership_expiry_7_days')
     }
 
-    // 2. 1 day before expiry
-    if (ms.status === 'active' && ms.expiry_date === in1Day) {
+    // 2. 1 day before expiry (only active memberships whose start date has arrived)
+    if (ms.status !== 'cancelled' && ms.start_date <= today && ms.expiry_date === in1Day) {
       candidateStages.push('membership_expiry_1_day')
     }
 
-    // 3. After expiry
-    if (ms.status === 'expired' || ms.expiry_date < today) {
+    // 3. After expiry (only if not cancelled and past expiry date)
+    if (ms.status !== 'cancelled' && ms.expiry_date < today) {
       candidateStages.push('membership_expired')
     }
 
-    // 4. Payment due
+    // 4. Payment due (only if payment_due_date is defined and matches today)
     if (
       pendingAmount > 0.005 &&
       ms.payment_due_date &&
@@ -258,7 +259,7 @@ export async function generateReminders(): Promise<ReminderGenerationResult> {
       candidateStages.push('payment_due')
     }
 
-    // 5. Payment overdue
+    // 5. Payment overdue (only if payment_due_date is defined and has passed)
     if (
       pendingAmount > 0.005 &&
       ms.payment_due_date &&

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
 import type { MemberFilter } from '../types/members.js'
+import { getEffectiveMembershipStatus, selectCurrentMembership } from '../utils/membershipStatus.js'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -17,30 +18,35 @@ function isoDate(offsetDays = 0): string {
  * Generates the next sequential member code (e.g. IP-00042) by finding the
  * maximum numeric suffix across all existing member codes.
  *
- * Security: called only from the backend controller; the browser never supplies
- * or influences the member_code value. The DB unique constraint is the final
- * concurrency-safe guarantee against duplicates.
+ * Requirements:
+ * - format: IP-XXXXX (zero-padded 5 digits, e.g. IP-00001)
+ * - must not gap on failed insertions (uses max existing, not sequence)
+ * - safe fallback to IP-00001 if table is empty
  */
 async function generateNextMemberCode(supabase: SupabaseClient): Promise<string> {
   const { data, error } = await supabase
     .from('members')
     .select('member_code')
+    .order('member_code', { ascending: false })
+    .limit(1)
 
   if (error) throw error
 
-  let maxNum = 0
-  for (const row of (data ?? []) as { member_code: string }[]) {
-    const m = row.member_code.match(/^IP-(\d+)$/)
-    if (m) {
-      const n = parseInt(m[1], 10)
-      if (n > maxNum) maxNum = n
-    }
+  if (!data || data.length === 0 || !data[0].member_code) {
+    return 'IP-00001'
   }
 
-  return `IP-${String(maxNum + 1).padStart(5, '0')}`
+  const lastCode = data[0].member_code as string
+  const match = lastCode.match(/^IP-(\d+)$/)
+  if (!match) {
+    return 'IP-00001'
+  }
+
+  const nextNum = parseInt(match[1], 10) + 1
+  return `IP-${String(nextNum).padStart(5, '0')}`
 }
 
-// ── Shared: attach most-recent membership to a list of member IDs ─────────────
+// ── Membership attachment helper ──────────────────────────────────────────────
 
 interface MembershipSummary {
   plan_name: string
@@ -55,26 +61,40 @@ async function attachMemberships(
   const map = new Map<string, MembershipSummary>()
   if (memberIds.length === 0) return map
 
+  const today = isoDate()
   const { data } = await supabase
     .from('memberships')
-    .select('member_id, expiry_date, status, membership_plans(name)')
+    .select('id, member_id, start_date, expiry_date, status, created_at, membership_plans(name)')
     .in('member_id', memberIds)
     .order('start_date', { ascending: false })
 
-  for (const row of (data ?? []) as unknown as {
+  type RowType = {
+    id: string
     member_id: string
+    start_date: string
     expiry_date: string
     status: string
+    created_at?: string
     membership_plans: { name: string } | { name: string }[] | null
-  }[]) {
-    if (!map.has(row.member_id)) {
-      const planName = Array.isArray(row.membership_plans)
-        ? row.membership_plans[0]?.name
-        : row.membership_plans?.name
-      map.set(row.member_id, {
+  }
+
+  const rowsByMember = new Map<string, RowType[]>()
+  for (const row of ((data ?? []) as unknown as RowType[])) {
+    const list = rowsByMember.get(row.member_id) ?? []
+    list.push(row)
+    rowsByMember.set(row.member_id, list)
+  }
+
+  for (const [memberId, rows] of rowsByMember.entries()) {
+    const chosen = selectCurrentMembership(rows, today) ?? rows[0]
+    if (chosen) {
+      const planName = Array.isArray(chosen.membership_plans)
+        ? chosen.membership_plans[0]?.name
+        : chosen.membership_plans?.name
+      map.set(memberId, {
         plan_name: planName ?? 'Unknown Plan',
-        expiry_date: row.expiry_date,
-        status: row.status,
+        expiry_date: chosen.expiry_date,
+        status: getEffectiveMembershipStatus(chosen, today),
       })
     }
   }
@@ -146,7 +166,8 @@ export async function listMembers(req: Request, res: Response): Promise<void> {
       const { data, error } = await supabase
         .from('memberships')
         .select('member_id')
-        .eq('status', 'active')
+        .neq('status', 'cancelled')
+        .lte('start_date', today)
         .gte('expiry_date', today)
         .lte('expiry_date', sevenDaysOut)
       if (error) throw error
@@ -157,7 +178,8 @@ export async function listMembers(req: Request, res: Response): Promise<void> {
       const { data: expiredData, error: expErr } = await supabase
         .from('memberships')
         .select('member_id')
-        .or(`status.eq.expired,and(status.eq.active,expiry_date.lt.${today})`)
+        .neq('status', 'cancelled')
+        .lt('expiry_date', today)
       if (expErr) throw expErr
 
       const expiredMemberIds = new Set((expiredData ?? []).map(r => r.member_id as string))
@@ -166,7 +188,8 @@ export async function listMembers(req: Request, res: Response): Promise<void> {
       const { data: activeData, error: actErr } = await supabase
         .from('memberships')
         .select('member_id')
-        .eq('status', 'active')
+        .neq('status', 'cancelled')
+        .lte('start_date', today)
         .gte('expiry_date', today)
       if (actErr) throw actErr
 

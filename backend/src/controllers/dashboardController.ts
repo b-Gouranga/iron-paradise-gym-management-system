@@ -1,5 +1,11 @@
 import type { Request, Response } from 'express'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
+import {
+  countUniqueActiveMembers,
+  isMembershipActive,
+  isMembershipExpired,
+  isMembershipExpiringSoon,
+} from '../utils/membershipStatus.js'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -22,6 +28,7 @@ interface MembershipRow {
   id: string
   actual_fee: number
   payment_due_date: string | null
+  start_date: string
   expiry_date: string
   status: string
   member_id: string
@@ -115,7 +122,7 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
         .eq('status', 'expired'),
       // 5. All memberships (for pending calc + renewal + pending list)
       supabase.from('memberships')
-        .select('id, actual_fee, payment_due_date, expiry_date, status, member_id, plan_id'),
+        .select('id, actual_fee, payment_due_date, start_date, expiry_date, status, member_id, plan_id'),
       // 6. All payment amounts grouped by membership (for pending calc)
       supabase.from('payments').select('membership_id, amount'),
       // 7. Member id → name lookup
@@ -172,10 +179,12 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
 
     // ── Stats ────────────────────────────────────────────────────────────────
 
+    const memberships = (membershipsRes.data ?? []) as unknown as MembershipRow[]
+
     const totalMembers = totalMembersRes.count ?? 0
-    const activeMembers = activeMembersRes.count ?? 0
-    const expiringSoon = expiringSoonRes.count ?? 0
-    const expired = expiredRes.count ?? 0
+    const activeMembers = countUniqueActiveMembers(memberships, today)
+    const expiringSoon = memberships.filter(m => isMembershipExpiringSoon(m, today, 7)).length
+    const expired = memberships.filter(m => isMembershipExpired(m, today)).length
 
     const revenueThisMonth = ((monthRevenueRes.data ?? []) as unknown as MonthRevenueRow[])
       .reduce((sum, p) => sum + Number(p.amount), 0)
@@ -185,8 +194,6 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
     // pending = actual_fee − sum(payments for this membership)
     // This is calculated from historical data; actual_fee is immutable per
     // REQUIREMENTS.md. Financial calculations run server-side only.
-
-    const memberships = (membershipsRes.data ?? []) as unknown as MembershipRow[]
 
     // Sort by payment_due_date ASC (nulls last) so the list shows most-urgent first
     const sortedMemberships = [...memberships].sort((a, b) => {
@@ -245,7 +252,8 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
     const renewalsList = memberships
       .filter(
         m =>
-          m.status === 'active' &&
+          m.status !== 'cancelled' &&
+          m.start_date <= today &&
           m.expiry_date >= sevenDaysAgo &&
           m.expiry_date <= fourteenDaysOut,
       )

@@ -6,6 +6,25 @@ import type {
   MembershipRow,
   MembershipWithDetails,
 } from '../types/memberships.js'
+import {
+  countUniqueActiveMembers,
+  getEffectiveMembershipStatus,
+  isMembershipActive,
+  isMembershipExpired,
+  isMembershipExpiringSoon,
+  isMembershipFuture,
+  selectCurrentMembership,
+} from '../utils/membershipStatus.js'
+
+export {
+  countUniqueActiveMembers,
+  getEffectiveMembershipStatus,
+  isMembershipActive,
+  isMembershipExpired,
+  isMembershipExpiringSoon,
+  isMembershipFuture,
+  selectCurrentMembership,
+}
 
 // ── Date calculation helpers ──────────────────────────────────────────────────
 
@@ -168,7 +187,7 @@ export async function listMemberMemberships(req: Request, res: Response): Promis
         expiry_date: raw.expiry_date,
         actual_fee: Number(raw.actual_fee),
         payment_due_date: raw.payment_due_date,
-        status: raw.status,
+        status: getEffectiveMembershipStatus(raw),
         created_at: raw.created_at,
         updated_at: raw.updated_at,
         plan_name: planObj?.name ?? 'Unknown Plan',
@@ -235,7 +254,7 @@ export async function getMembership(req: Request, res: Response): Promise<void> 
       expiry_date: raw.expiry_date,
       actual_fee: Number(raw.actual_fee),
       payment_due_date: raw.payment_due_date,
-      status: raw.status,
+      status: getEffectiveMembershipStatus(raw),
       created_at: raw.created_at,
       updated_at: raw.updated_at,
       plan_name: planObj?.name ?? 'Unknown Plan',
@@ -338,16 +357,16 @@ export async function createMembership(req: Request, res: Response): Promise<voi
       plan.duration_unit,
     )
 
-    // 4. Overlap protection: check for existing active memberships for this member
-    const { data: activeExisting, error: overlapErr } = await supabase
+    // 4. Overlap protection: check for existing non-cancelled memberships for this member
+    const { data: nonCancelledExisting, error: overlapErr } = await supabase
       .from('memberships')
       .select('id, start_date, expiry_date, status')
       .eq('member_id', memberId)
-      .eq('status', 'active')
+      .neq('status', 'cancelled')
 
     if (overlapErr) throw overlapErr
 
-    const overlap = (activeExisting ?? []).find(
+    const overlap = (nonCancelledExisting ?? []).find(
       m => m.start_date <= expiryDate && m.expiry_date >= startDate,
     )
 
@@ -480,16 +499,16 @@ export async function renewMembership(req: Request, res: Response): Promise<void
       return
     }
 
-    // 5. Check for overlap with any other active membership for this member
-    const { data: activeOther, error: otherErr } = await supabase
+    // 5. Check for overlap with any other non-cancelled membership for this member
+    const { data: nonCancelledOther, error: otherErr } = await supabase
       .from('memberships')
       .select('id, start_date, expiry_date, status')
       .eq('member_id', previous.member_id)
-      .eq('status', 'active')
+      .neq('status', 'cancelled')
 
     if (otherErr) throw otherErr
 
-    const otherOverlap = (activeOther ?? []).find(
+    const otherOverlap = (nonCancelledOther ?? []).find(
       m => m.id !== previous.id && m.start_date <= expiryDate && m.expiry_date >= startDate,
     )
 
