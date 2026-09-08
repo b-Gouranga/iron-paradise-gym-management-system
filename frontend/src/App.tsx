@@ -5,10 +5,11 @@ import { AppLayout } from './layouts/AppLayout'
 import { LoginPage } from './pages/LoginPage'
 import { OwnerSetupPage } from './pages/OwnerSetupPage'
 import { DashboardPage } from './pages/DashboardPage'
+import { MembersPage } from './pages/MembersPage'
+import { MemberDetailPage } from './pages/MemberDetailPage'
 import { ComingSoonPage } from './pages/ComingSoonPage'
 
 const futureRoutes = [
-  '/members',
   '/membership-plans',
   '/payments',
   '/renewals',
@@ -30,6 +31,8 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/members" element={<MembersPage />} />
+            <Route path="/members/:id" element={<MemberDetailPage />} />
             {futureRoutes.map((path) => (
               <Route key={path} path={path} element={<ComingSoonPage />} />
             ))}
