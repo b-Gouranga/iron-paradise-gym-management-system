@@ -7,22 +7,27 @@ import {
   updateMember,
   archiveMember,
 } from '../controllers/membersController.js'
+import {
+  listMemberMemberships,
+  createMembership,
+} from '../controllers/membershipsController.js'
 
 export const membersRouter = Router()
 
 /**
- * GET  /api/members           — list, search, and filter members (requireAuth)
- * GET  /api/members/:id       — single member detail (requireAuth)
- * POST /api/members           — create member (requireAuth; owner or trainer)
- * PATCH /api/members/:id      — update member personal fields (requireAuth; owner or trainer)
- * PATCH /api/members/:id/archive — soft-archive member (owner only)
- *
- * Note: the /archive sub-route is mounted before /:id to ensure Express does
- * not ambiguously match it as an id parameter.
+ * GET  /api/members                      — list, search, and filter members (requireAuth)
+ * GET  /api/members/:id                  — single member detail (requireAuth)
+ * POST /api/members                      — create member (requireAuth; owner or trainer)
+ * PATCH /api/members/:id                 — update member personal fields (requireAuth; owner or trainer)
+ * PATCH /api/members/:id/archive         — soft-archive member (owner only)
+ * GET  /api/members/:memberId/memberships — list memberships for member (requireAuth)
+ * POST /api/members/:memberId/memberships — create membership for member (requireAuth)
  */
 
 membersRouter.get('/', requireAuth, listMembers)
 membersRouter.post('/', requireAuth, createMember)
+membersRouter.get('/:memberId/memberships', requireAuth, listMemberMemberships)
+membersRouter.post('/:memberId/memberships', requireAuth, createMembership)
 membersRouter.get('/:id', requireAuth, getMember)
 membersRouter.patch('/:id/archive', requireAuth, requireRole('owner'), archiveMember)
 membersRouter.patch('/:id', requireAuth, updateMember)

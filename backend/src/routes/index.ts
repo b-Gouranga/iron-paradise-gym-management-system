@@ -4,6 +4,7 @@ import { authRouter } from './authRouter.js'
 import { dashboardRouter } from './dashboardRouter.js'
 import { membersRouter } from './membersRouter.js'
 import { membershipPlansRouter } from './membershipPlansRouter.js'
+import { membershipsRouter } from './membershipsRouter.js'
 
 export const apiRouter = Router()
 
@@ -21,3 +22,6 @@ apiRouter.use('/members', membersRouter)
 
 // Membership Plans routes — protected by requireAuth (enforced in membershipPlansRouter)
 apiRouter.use('/membership-plans', membershipPlansRouter)
+
+// Memberships routes — protected by requireAuth (enforced in membershipsRouter)
+apiRouter.use('/memberships', membershipsRouter)

@@ -9,28 +9,34 @@ import {
   MapPin,
   MessageSquare,
   Phone,
-  Shield,
-  User,
+  Plus,
+  RotateCcw,
   UserX,
 } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
-import { PageHeader } from '../components/PageHeader'
 import { StatusBadge } from '../components/StatusBadge'
 import { ArchiveConfirmDialog } from '../components/members/ArchiveConfirmDialog'
 import { MemberFormModal } from '../components/members/MemberFormModal'
+import { AddMembershipModal } from '../components/memberships/AddMembershipModal'
+import { RenewMembershipModal } from '../components/memberships/RenewMembershipModal'
 import { useAuth } from '../hooks/useAuth'
 import { useMemberDetail } from '../hooks/useMemberDetail'
+import { useMemberMemberships } from '../hooks/useMemberMemberships'
+import type { Membership } from '../types/memberships'
+import type { Status } from '../types'
 
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—'
   const dateOnly = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr
-  return new Date(`${dateOnly}T00:00:00`).toLocaleDateString('en-IN', {
+  const [y, m, d] = dateOnly.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-IN', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    timeZone: 'UTC',
   })
 }
 
@@ -41,14 +47,35 @@ const formatINR = (amount: number): string =>
     maximumFractionDigits: 0,
   }).format(amount)
 
+function mapMembershipStatus(status: string): Status {
+  if (status === 'active') return 'Active'
+  if (status === 'expired') return 'Expired'
+  if (status === 'cancelled') return 'Cancelled'
+  return 'Inactive'
+}
+
 export function MemberDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { profile } = useAuth()
   const isOwner = profile?.role === 'owner'
 
   const { member, loading, error, refresh } = useMemberDetail(id)
+  const {
+    memberships,
+    currentMembership,
+    loading: loadingMemberships,
+    refresh: refreshMemberships,
+  } = useMemberMemberships(id)
+
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isArchiveOpen, setIsArchiveOpen] = useState(false)
+  const [isAddMembershipOpen, setIsAddMembershipOpen] = useState(false)
+  const [renewTarget, setRenewTarget] = useState<Membership | null>(null)
+
+  function handleMembershipSuccess() {
+    refresh()
+    refreshMemberships()
+  }
 
   if (loading) {
     return (
@@ -143,7 +170,7 @@ export function MemberDetailPage() {
 
       {/* Main Grid */}
       <div className="mt-8 grid gap-7 lg:grid-cols-3">
-        {/* Left 2 Columns: Personal Details & Current Membership */}
+        {/* Left 2 Columns: Personal Details & Memberships */}
         <div className="space-y-7 lg:col-span-2">
           {/* Personal Information */}
           <Card className="p-6">
@@ -198,40 +225,87 @@ export function MemberDetailPage() {
 
           {/* Current Membership */}
           <Card className="p-6">
-            <h2 className="text-base font-semibold text-white">
-              Current Membership
-            </h2>
-            {member.current_membership ? (
-              <div className="mt-4 grid gap-4 sm:grid-cols-3 text-sm">
-                <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
-                  <p className="text-xs text-zinc-500">Plan</p>
-                  <p className="mt-0.5 font-semibold text-white">
-                    {member.current_membership.plan_name}
-                  </p>
-                </div>
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold text-white">
+                Current Membership
+              </h2>
+              {currentMembership && (
+                <button
+                  type="button"
+                  onClick={() => setRenewTarget(currentMembership)}
+                  className="flex items-center gap-1.5 rounded-lg border border-brand/30 bg-brand/10 px-3 py-1.5 text-xs font-semibold text-red-300 transition hover:bg-brand/20 hover:text-white"
+                >
+                  <RotateCcw size={13} />
+                  Renew Plan
+                </button>
+              )}
+            </div>
 
-                <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
-                  <p className="text-xs text-zinc-500">Valid Until</p>
-                  <p className="mt-0.5 font-semibold text-white">
-                    {formatDate(member.current_membership.expiry_date)}
-                  </p>
-                </div>
+            {loadingMemberships ? (
+              <div className="py-6 text-center text-xs text-zinc-500">
+                Loading membership status…
+              </div>
+            ) : currentMembership ? (
+              <div className="mt-4">
+                <div className="grid gap-4 sm:grid-cols-4 text-sm">
+                  <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
+                    <p className="text-xs text-zinc-500">Plan</p>
+                    <p className="mt-0.5 font-semibold text-white">
+                      {currentMembership.plan_name}
+                    </p>
+                    <p className="text-[11px] text-zinc-500">
+                      {currentMembership.duration_value} {currentMembership.duration_unit}
+                    </p>
+                  </div>
 
-                <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
-                  <p className="text-xs text-zinc-500">Fee</p>
-                  <p className="mt-0.5 font-semibold text-white">
-                    {formatINR(member.current_membership.actual_fee)}
-                  </p>
+                  <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
+                    <p className="text-xs text-zinc-500">Validity</p>
+                    <p className="mt-0.5 font-semibold text-white">
+                      {formatDate(currentMembership.start_date)}
+                    </p>
+                    <p className="text-[11px] text-zinc-400">
+                      to {formatDate(currentMembership.expiry_date)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
+                    <p className="text-xs text-zinc-500">Actual Fee</p>
+                    <p className="mt-0.5 font-semibold text-emerald-300">
+                      {formatINR(currentMembership.actual_fee)}
+                    </p>
+                    <p className="text-[11px] text-zinc-500">Contracted price</p>
+                  </div>
+
+                  <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
+                    <p className="text-xs text-zinc-500">Status</p>
+                    <div className="mt-1">
+                      <StatusBadge status={mapMembershipStatus(currentMembership.status)} />
+                    </div>
+                    {currentMembership.payment_due_date && (
+                      <p className="mt-1 text-[11px] text-zinc-500">
+                        Due: {formatDate(currentMembership.payment_due_date)}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             ) : (
-              <div className="mt-4 rounded-lg border border-white/[.06] bg-white/[.02] p-6 text-center text-xs text-zinc-500">
-                No active membership on record for this member.
+              <div className="mt-4 flex flex-col items-center justify-center gap-3 rounded-lg border border-white/[.06] bg-white/[.02] p-6 text-center">
+                <p className="text-xs text-zinc-400">
+                  No active membership on record for this member.
+                </p>
+                <Button
+                  onClick={() => setIsAddMembershipOpen(true)}
+                  className="flex items-center gap-1.5 text-xs"
+                >
+                  <Plus size={14} />
+                  Assign Membership
+                </Button>
               </div>
             )}
           </Card>
 
-          {/* Membership History Placeholder (Part 7) */}
+          {/* Membership & Renewal History */}
           <Card className="p-6">
             <div className="flex items-center justify-between border-b border-white/[.07] pb-3">
               <div className="flex items-center gap-2">
@@ -239,14 +313,90 @@ export function MemberDetailPage() {
                 <h3 className="text-sm font-semibold text-white">
                   Membership & Renewal History
                 </h3>
+                <span className="rounded bg-white/[.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+                  {memberships.length}
+                </span>
               </div>
-              <span className="rounded bg-white/[.06] px-2 py-0.5 text-[10px] uppercase font-semibold text-zinc-400">
-                Part 7
-              </span>
+              <button
+                type="button"
+                onClick={() => setIsAddMembershipOpen(true)}
+                className="flex items-center gap-1 text-xs font-semibold text-brand hover:text-red-400"
+              >
+                <Plus size={14} />
+                New Membership
+              </button>
             </div>
-            <div className="py-8 text-center text-xs text-zinc-500">
-              Detailed renewal history, plan changes, and renewal delay tracking
-              will appear here once the Membership & Renewal System is integrated (Part 7).
+
+            <div className="mt-4">
+              {loadingMemberships ? (
+                <div className="py-8 text-center text-xs text-zinc-500">
+                  Loading membership history…
+                </div>
+              ) : memberships.length === 0 ? (
+                <div className="py-8 text-center text-xs text-zinc-500">
+                  No membership history recorded yet. Click &ldquo;New Membership&rdquo; above to assign a plan.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {memberships.map((m, idx) => (
+                    <div
+                      key={m.id}
+                      className="flex flex-col gap-3 rounded-xl border border-white/[.06] bg-white/[.02] p-4 transition hover:border-white/10 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-white">{m.plan_name}</span>
+                          <span className="text-xs text-zinc-500">
+                            ({m.duration_value} {m.duration_unit})
+                          </span>
+                          <StatusBadge status={mapMembershipStatus(m.status)} />
+                          {m.renewal_delay_days != null && (
+                            <span
+                              className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                                m.renewal_delay_days <= 1
+                                  ? 'bg-emerald-500/10 text-emerald-400'
+                                  : 'bg-amber-500/10 text-amber-300'
+                              }`}
+                              title={`Gap between previous expiry and new start: ${m.renewal_delay_days} days`}
+                            >
+                              {m.renewal_delay_days <= 1
+                                ? 'continuous'
+                                : `+${m.renewal_delay_days}d gap`}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400">
+                          <span>
+                            {formatDate(m.start_date)} → {formatDate(m.expiry_date)}
+                          </span>
+                          <span className="font-medium text-emerald-300">
+                            {formatINR(m.actual_fee)}
+                          </span>
+                          {m.payment_due_date && (
+                            <span className="text-zinc-500">
+                              Due: {formatDate(m.payment_due_date)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setRenewTarget(m)}
+                          className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/[.08] hover:text-white"
+                          title="Renew from this membership"
+                        >
+                          <RotateCcw size={12} />
+                          Renew
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </Card>
         </div>
@@ -309,6 +459,24 @@ export function MemberDetailPage() {
         memberId={member.id}
         memberName={member.full_name}
         memberCode={member.member_code}
+      />
+
+      {/* Add Membership Modal */}
+      <AddMembershipModal
+        isOpen={isAddMembershipOpen}
+        onClose={() => setIsAddMembershipOpen(false)}
+        onSuccess={handleMembershipSuccess}
+        memberId={member.id}
+        memberName={member.full_name}
+      />
+
+      {/* Renew Membership Modal */}
+      <RenewMembershipModal
+        isOpen={Boolean(renewTarget)}
+        onClose={() => setRenewTarget(null)}
+        onSuccess={handleMembershipSuccess}
+        previousMembership={renewTarget}
+        memberName={member.full_name}
       />
     </>
   )
