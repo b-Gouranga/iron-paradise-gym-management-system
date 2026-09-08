@@ -2,9 +2,11 @@ import {
   AlertTriangle,
   ArrowLeft,
   Calendar,
+  CheckCircle2,
   CreditCard,
   Edit2,
   History,
+  IndianRupee,
   Mail,
   MapPin,
   MessageSquare,
@@ -22,10 +24,13 @@ import { ArchiveConfirmDialog } from '../components/members/ArchiveConfirmDialog
 import { MemberFormModal } from '../components/members/MemberFormModal'
 import { AddMembershipModal } from '../components/memberships/AddMembershipModal'
 import { RenewMembershipModal } from '../components/memberships/RenewMembershipModal'
+import { RecordPaymentModal } from '../components/payments/RecordPaymentModal'
 import { useAuth } from '../hooks/useAuth'
 import { useMemberDetail } from '../hooks/useMemberDetail'
 import { useMemberMemberships } from '../hooks/useMemberMemberships'
+import { useMemberPayments } from '../hooks/useMemberPayments'
 import type { Membership } from '../types/memberships'
+import type { PaymentMethod, PaymentStatus } from '../types/payments'
 import type { Status } from '../types'
 
 function formatDate(dateStr: string | null | undefined): string {
@@ -54,6 +59,21 @@ function mapMembershipStatus(status: string): Status {
   return 'Inactive'
 }
 
+function getPaymentMethodBadge(method: PaymentMethod) {
+  switch (method) {
+    case 'cash':
+      return { label: 'Cash', classes: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' }
+    case 'upi':
+      return { label: 'UPI', classes: 'bg-purple-500/10 text-purple-400 border-purple-500/20' }
+    case 'card':
+      return { label: 'Card', classes: 'bg-blue-500/10 text-blue-400 border-blue-500/20' }
+    case 'bank_transfer':
+      return { label: 'Bank', classes: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' }
+    default:
+      return { label: 'Other', classes: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20' }
+  }
+}
+
 export function MemberDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { profile } = useAuth()
@@ -66,15 +86,29 @@ export function MemberDetailPage() {
     loading: loadingMemberships,
     refresh: refreshMemberships,
   } = useMemberMemberships(id)
+  const {
+    summary: paymentSummary,
+    loading: loadingPayments,
+    refresh: refreshPayments,
+  } = useMemberPayments(id)
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isArchiveOpen, setIsArchiveOpen] = useState(false)
   const [isAddMembershipOpen, setIsAddMembershipOpen] = useState(false)
   const [renewTarget, setRenewTarget] = useState<Membership | null>(null)
+  const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false)
+  const [recordPaymentMembershipId, setRecordPaymentMembershipId] = useState<string | undefined>(undefined)
 
   function handleMembershipSuccess() {
     refresh()
     refreshMemberships()
+    refreshPayments()
+  }
+
+  function handlePaymentSuccess() {
+    refresh()
+    refreshMemberships()
+    refreshPayments()
   }
 
   if (loading) {
@@ -229,16 +263,35 @@ export function MemberDetailPage() {
               <h2 className="text-base font-semibold text-white">
                 Current Membership
               </h2>
-              {currentMembership && (
-                <button
-                  type="button"
-                  onClick={() => setRenewTarget(currentMembership)}
-                  className="flex items-center gap-1.5 rounded-lg border border-brand/30 bg-brand/10 px-3 py-1.5 text-xs font-semibold text-red-300 transition hover:bg-brand/20 hover:text-white"
-                >
-                  <RotateCcw size={13} />
-                  Renew Plan
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {currentMembership && (() => {
+                  const currPay = paymentSummary?.memberships_summary.find(s => s.membership_id === currentMembership.id)
+                  if (!currPay || currPay.pending_amount <= 0) return null
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRecordPaymentMembershipId(currentMembership.id)
+                        setIsRecordPaymentOpen(true)
+                      }}
+                      className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/20 hover:text-white"
+                    >
+                      <IndianRupee size={13} />
+                      Collect Payment
+                    </button>
+                  )
+                })()}
+                {currentMembership && (
+                  <button
+                    type="button"
+                    onClick={() => setRenewTarget(currentMembership)}
+                    className="flex items-center gap-1.5 rounded-lg border border-brand/30 bg-brand/10 px-3 py-1.5 text-xs font-semibold text-red-300 transition hover:bg-brand/20 hover:text-white"
+                  >
+                    <RotateCcw size={13} />
+                    Renew Plan
+                  </button>
+                )}
+              </div>
             </div>
 
             {loadingMemberships ? (
@@ -246,49 +299,86 @@ export function MemberDetailPage() {
                 Loading membership status…
               </div>
             ) : currentMembership ? (
-              <div className="mt-4">
-                <div className="grid gap-4 sm:grid-cols-4 text-sm">
-                  <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
-                    <p className="text-xs text-zinc-500">Plan</p>
-                    <p className="mt-0.5 font-semibold text-white">
-                      {currentMembership.plan_name}
-                    </p>
-                    <p className="text-[11px] text-zinc-500">
-                      {currentMembership.duration_value} {currentMembership.duration_unit}
-                    </p>
-                  </div>
+              (() => {
+                const currPay = paymentSummary?.memberships_summary.find(s => s.membership_id === currentMembership.id)
+                const totalPaid = currPay?.total_paid ?? 0
+                const pendingAmt = currPay?.pending_amount ?? 0
+                const payStatus = currPay?.payment_status ?? null
 
-                  <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
-                    <p className="text-xs text-zinc-500">Validity</p>
-                    <p className="mt-0.5 font-semibold text-white">
-                      {formatDate(currentMembership.start_date)}
-                    </p>
-                    <p className="text-[11px] text-zinc-400">
-                      to {formatDate(currentMembership.expiry_date)}
-                    </p>
-                  </div>
+                return (
+                  <div className="mt-4">
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 text-sm">
+                      <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
+                        <p className="text-xs text-zinc-500">Plan</p>
+                        <p className="mt-0.5 font-semibold text-white">
+                          {currentMembership.plan_name}
+                        </p>
+                        <p className="text-[11px] text-zinc-500">
+                          {currentMembership.duration_value} {currentMembership.duration_unit}
+                        </p>
+                      </div>
 
-                  <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
-                    <p className="text-xs text-zinc-500">Actual Fee</p>
-                    <p className="mt-0.5 font-semibold text-emerald-300">
-                      {formatINR(currentMembership.actual_fee)}
-                    </p>
-                    <p className="text-[11px] text-zinc-500">Contracted price</p>
-                  </div>
+                      <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
+                        <p className="text-xs text-zinc-500">Validity</p>
+                        <p className="mt-0.5 font-semibold text-white">
+                          {formatDate(currentMembership.start_date)}
+                        </p>
+                        <p className="text-[11px] text-zinc-400">
+                          to {formatDate(currentMembership.expiry_date)}
+                        </p>
+                      </div>
 
-                  <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
-                    <p className="text-xs text-zinc-500">Status</p>
-                    <div className="mt-1">
-                      <StatusBadge status={mapMembershipStatus(currentMembership.status)} />
+                      <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
+                        <p className="text-xs text-zinc-500">Actual Fee</p>
+                        <p className="mt-0.5 font-semibold text-white">
+                          {formatINR(currentMembership.actual_fee)}
+                        </p>
+                        <p className="text-[11px] text-zinc-500">Contracted price</p>
+                      </div>
+
+                      <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
+                        <p className="text-xs text-zinc-500">Payment Status</p>
+                        <div className="mt-1 flex items-center gap-1.5">
+                          {payStatus ? (
+                            <span
+                              className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold ${
+                                payStatus === 'Paid'
+                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                  : payStatus === 'Partially Paid'
+                                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                  : 'bg-brand/10 text-brand border-brand/20'
+                              }`}
+                            >
+                              {payStatus}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-zinc-500">—</span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-[11px] text-zinc-400">
+                          Paid: <span className="text-emerald-400 font-medium">{formatINR(totalPaid)}</span>
+                        </p>
+                      </div>
+
+                      <div className="rounded-lg border border-white/[.05] bg-white/[.02] p-3">
+                        <p className="text-xs text-zinc-500">Remaining Due</p>
+                        <p className={`mt-0.5 font-semibold ${pendingAmt > 0 ? 'text-brand' : 'text-zinc-400'}`}>
+                          {formatINR(pendingAmt)}
+                        </p>
+                        {currentMembership.payment_due_date ? (
+                          <p className="mt-1 text-[11px] text-zinc-500">
+                            Due: {formatDate(currentMembership.payment_due_date)}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-[11px] text-zinc-500">
+                            Status: {currentMembership.status.toUpperCase()}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    {currentMembership.payment_due_date && (
-                      <p className="mt-1 text-[11px] text-zinc-500">
-                        Due: {formatDate(currentMembership.payment_due_date)}
-                      </p>
-                    )}
                   </div>
-                </div>
-              </div>
+                )
+              })()
             ) : (
               <div className="mt-4 flex flex-col items-center justify-center gap-3 rounded-lg border border-white/[.06] bg-white/[.02] p-6 text-center">
                 <p className="text-xs text-zinc-400">
@@ -338,63 +428,107 @@ export function MemberDetailPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {memberships.map((m, idx) => (
-                    <div
-                      key={m.id}
-                      className="flex flex-col gap-3 rounded-xl border border-white/[.06] bg-white/[.02] p-4 transition hover:border-white/10 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="space-y-1">
+                  {memberships.map((m, idx) => {
+                    const mPayment = paymentSummary?.memberships_summary.find(s => s.membership_id === m.id)
+                    const isDue = mPayment && mPayment.pending_amount > 0
+
+                    return (
+                      <div
+                        key={m.id}
+                        className="flex flex-col gap-3 rounded-xl border border-white/[.06] bg-white/[.02] p-4 transition hover:border-white/10 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold text-white">{m.plan_name}</span>
+                            <span className="text-xs text-zinc-500">
+                              ({m.duration_value} {m.duration_unit})
+                            </span>
+                            <StatusBadge status={mapMembershipStatus(m.status)} />
+                            {mPayment && (
+                              <span
+                                className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                                  mPayment.payment_status === 'Paid'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                    : mPayment.payment_status === 'Partially Paid'
+                                    ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                                    : 'bg-brand/10 text-brand border border-brand/20'
+                                }`}
+                              >
+                                {mPayment.payment_status}
+                              </span>
+                            )}
+                            {m.renewal_delay_days != null && (
+                              <span
+                                className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                                  m.renewal_delay_days <= 1
+                                    ? 'bg-emerald-500/10 text-emerald-400'
+                                    : 'bg-amber-500/10 text-amber-300'
+                                }`}
+                                title={`Gap between previous expiry and new start: ${m.renewal_delay_days} days`}
+                              >
+                                {m.renewal_delay_days <= 1
+                                  ? 'continuous'
+                                  : `+${m.renewal_delay_days}d gap`}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400">
+                            <span>
+                              {formatDate(m.start_date)} → {formatDate(m.expiry_date)}
+                            </span>
+                            <span className="font-medium text-white">
+                              Fee: {formatINR(m.actual_fee)}
+                            </span>
+                            {mPayment && (
+                              <span>
+                                Paid:{' '}
+                                <strong className="text-emerald-300 font-semibold">
+                                  {formatINR(mPayment.total_paid)}
+                                </strong>{' '}
+                                / Due:{' '}
+                                <strong className={mPayment.pending_amount > 0 ? 'text-brand font-semibold' : 'text-zinc-400'}>
+                                  {formatINR(mPayment.pending_amount)}
+                                </strong>
+                              </span>
+                            )}
+                            {m.payment_due_date && (
+                              <span className="text-zinc-500">
+                                Due: {formatDate(m.payment_due_date)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Action buttons */}
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-white">{m.plan_name}</span>
-                          <span className="text-xs text-zinc-500">
-                            ({m.duration_value} {m.duration_unit})
-                          </span>
-                          <StatusBadge status={mapMembershipStatus(m.status)} />
-                          {m.renewal_delay_days != null && (
-                            <span
-                              className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
-                                m.renewal_delay_days <= 1
-                                  ? 'bg-emerald-500/10 text-emerald-400'
-                                  : 'bg-amber-500/10 text-amber-300'
-                              }`}
-                              title={`Gap between previous expiry and new start: ${m.renewal_delay_days} days`}
+                          {isDue && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRecordPaymentMembershipId(m.id)
+                                setIsRecordPaymentOpen(true)
+                              }}
+                              className="flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/20 hover:text-white"
+                              title="Record payment for this membership"
                             >
-                              {m.renewal_delay_days <= 1
-                                ? 'continuous'
-                                : `+${m.renewal_delay_days}d gap`}
-                            </span>
+                              <IndianRupee size={12} />
+                              Pay Due
+                            </button>
                           )}
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400">
-                          <span>
-                            {formatDate(m.start_date)} → {formatDate(m.expiry_date)}
-                          </span>
-                          <span className="font-medium text-emerald-300">
-                            {formatINR(m.actual_fee)}
-                          </span>
-                          {m.payment_due_date && (
-                            <span className="text-zinc-500">
-                              Due: {formatDate(m.payment_due_date)}
-                            </span>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setRenewTarget(m)}
+                            className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/[.08] hover:text-white"
+                            title="Renew from this membership"
+                          >
+                            <RotateCcw size={12} />
+                            Renew
+                          </button>
                         </div>
                       </div>
-
-                      {/* Action buttons */}
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setRenewTarget(m)}
-                          className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/[.08] hover:text-white"
-                          title="Renew from this membership"
-                        >
-                          <RotateCcw size={12} />
-                          Renew
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -403,7 +537,7 @@ export function MemberDetailPage() {
 
         {/* Right Column: Payments & Reminders History Placeholders */}
         <div className="space-y-7">
-          {/* Payment History Placeholder (Part 8) */}
+          {/* Payment History & Balance */}
           <Card className="p-6">
             <div className="flex items-center justify-between border-b border-white/[.07] pb-3">
               <div className="flex items-center gap-2">
@@ -411,14 +545,97 @@ export function MemberDetailPage() {
                 <h3 className="text-sm font-semibold text-white">
                   Payment History
                 </h3>
+                <span className="rounded bg-white/[.06] px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+                  {paymentSummary?.payments.length ?? 0}
+                </span>
               </div>
-              <span className="rounded bg-white/[.06] px-2 py-0.5 text-[10px] uppercase font-semibold text-zinc-400">
-                Part 8
-              </span>
+              {memberships.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRecordPaymentMembershipId(currentMembership?.id ?? memberships[0]?.id)
+                    setIsRecordPaymentOpen(true)
+                  }}
+                  className="flex items-center gap-1 text-xs font-semibold text-emerald-400 hover:text-emerald-300"
+                >
+                  <Plus size={14} />
+                  Record Payment
+                </button>
+              )}
             </div>
-            <div className="py-8 text-center text-xs text-zinc-500">
-              Transaction records, partial payment splits, and receipts will be
-              managed here once the Payment Management module is integrated (Part 8).
+
+            {/* Financial Balance Summary */}
+            <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl border border-white/[.08] bg-white/[.02] p-3 text-center">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-zinc-500">Contracted</p>
+                <p className="mt-0.5 font-semibold text-white text-xs sm:text-sm">
+                  {formatINR(paymentSummary?.total_contracted_fee ?? 0)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-zinc-500">Total Paid</p>
+                <p className="mt-0.5 font-semibold text-emerald-400 text-xs sm:text-sm">
+                  {formatINR(paymentSummary?.total_paid ?? 0)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-zinc-500">Balance Due</p>
+                <p className={`mt-0.5 font-semibold text-xs sm:text-sm ${
+                  (paymentSummary?.total_pending ?? 0) > 0 ? 'text-brand' : 'text-zinc-400'
+                }`}>
+                  {formatINR(paymentSummary?.total_pending ?? 0)}
+                </p>
+              </div>
+            </div>
+
+            {/* Transactions List */}
+            <div className="mt-4">
+              {loadingPayments ? (
+                <div className="py-8 text-center text-xs text-zinc-500">
+                  Loading payment records…
+                </div>
+              ) : !paymentSummary || paymentSummary.payments.length === 0 ? (
+                <div className="py-8 text-center text-xs text-zinc-500">
+                  No payment records found. Use &ldquo;Record Payment&rdquo; above to record money collected manually.
+                </div>
+              ) : (
+                <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
+                  {paymentSummary.payments.map(p => {
+                    const mBadge = getPaymentMethodBadge(p.payment_method)
+                    return (
+                      <div
+                        key={p.id}
+                        className="rounded-xl border border-white/[.06] bg-white/[.02] p-3 transition hover:border-white/10"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-emerald-400 text-sm">
+                            {formatINR(p.amount)}
+                          </span>
+                          <span
+                            className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold ${mBadge.classes}`}
+                          >
+                            {mBadge.label}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 flex items-center justify-between text-xs text-zinc-400">
+                          <span className="capitalize">{p.purpose.replace(/_/g, ' ')}</span>
+                          <span className="text-[11px] text-zinc-500">{formatDate(p.payment_date)}</span>
+                        </div>
+                        {p.plan_name && (
+                          <div className="mt-1 text-[11px] text-zinc-500">
+                            Plan: <span className="text-zinc-400">{p.plan_name}</span>
+                          </div>
+                        )}
+                        {p.notes && (
+                          <p className="mt-1 rounded bg-white/[.02] px-2 py-1 text-[11px] text-zinc-400 italic">
+                            &ldquo;{p.notes}&rdquo;
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </Card>
 
@@ -477,6 +694,30 @@ export function MemberDetailPage() {
         onSuccess={handleMembershipSuccess}
         previousMembership={renewTarget}
         memberName={member.full_name}
+      />
+
+      {/* Record Payment Modal */}
+      <RecordPaymentModal
+        isOpen={isRecordPaymentOpen}
+        onClose={() => {
+          setIsRecordPaymentOpen(false)
+          setRecordPaymentMembershipId(undefined)
+        }}
+        onSuccess={handlePaymentSuccess}
+        memberId={member.id}
+        memberName={member.full_name}
+        memberships={memberships.map(m => {
+          const ms = paymentSummary?.memberships_summary.find(s => s.membership_id === m.id)
+          return {
+            id: m.id,
+            plan_name: m.plan_name,
+            actual_fee: m.actual_fee,
+            pending_amount: ms?.pending_amount,
+            expiry_date: m.expiry_date,
+            status: m.status,
+          }
+        })}
+        preselectedMembershipId={recordPaymentMembershipId}
       />
     </>
   )

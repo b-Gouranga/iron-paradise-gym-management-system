@@ -11,6 +11,7 @@ import {
   listMemberMemberships,
   createMembership,
 } from '../controllers/membershipsController.js'
+import { getMemberPayments } from '../controllers/paymentsController.js'
 
 export const membersRouter = Router()
 
@@ -22,12 +23,15 @@ export const membersRouter = Router()
  * PATCH /api/members/:id/archive         — soft-archive member (owner only)
  * GET  /api/members/:memberId/memberships — list memberships for member (requireAuth)
  * POST /api/members/:memberId/memberships — create membership for member (requireAuth)
+ * GET  /api/members/:memberId/payments   — list payments & financial summary for member (requireAuth)
  */
 
 membersRouter.get('/', requireAuth, listMembers)
 membersRouter.post('/', requireAuth, createMember)
 membersRouter.get('/:memberId/memberships', requireAuth, listMemberMemberships)
 membersRouter.post('/:memberId/memberships', requireAuth, createMembership)
+membersRouter.get('/:memberId/payments', requireAuth, getMemberPayments)
+membersRouter.get('/:id/payments', requireAuth, getMemberPayments)
 membersRouter.get('/:id', requireAuth, getMember)
 membersRouter.patch('/:id/archive', requireAuth, requireRole('owner'), archiveMember)
 membersRouter.patch('/:id', requireAuth, updateMember)

@@ -8,10 +8,10 @@ import { DashboardPage } from './pages/DashboardPage'
 import { MembersPage } from './pages/MembersPage'
 import { MemberDetailPage } from './pages/MemberDetailPage'
 import { MembershipPlansPage } from './pages/MembershipPlansPage'
+import { PaymentsPage } from './pages/PaymentsPage'
 import { ComingSoonPage } from './pages/ComingSoonPage'
 
 const futureRoutes = [
-  '/payments',
   '/renewals',
   '/reminders',
   '/reports',
@@ -34,6 +34,7 @@ export default function App() {
             <Route path="/members" element={<MembersPage />} />
             <Route path="/members/:id" element={<MemberDetailPage />} />
             <Route path="/membership-plans" element={<MembershipPlansPage />} />
+            <Route path="/payments" element={<PaymentsPage />} />
             {futureRoutes.map((path) => (
               <Route key={path} path={path} element={<ComingSoonPage />} />
             ))}
