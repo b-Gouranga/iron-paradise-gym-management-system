@@ -3,6 +3,7 @@ import { getHealth } from '../controllers/healthController.js'
 import { authRouter } from './authRouter.js'
 import { dashboardRouter } from './dashboardRouter.js'
 import { membersRouter } from './membersRouter.js'
+import { membershipPlansRouter } from './membershipPlansRouter.js'
 
 export const apiRouter = Router()
 
@@ -17,3 +18,6 @@ apiRouter.use('/dashboard', dashboardRouter)
 
 // Members routes — protected by requireAuth (enforced in membersRouter)
 apiRouter.use('/members', membersRouter)
+
+// Membership Plans routes — protected by requireAuth (enforced in membershipPlansRouter)
+apiRouter.use('/membership-plans', membershipPlansRouter)
