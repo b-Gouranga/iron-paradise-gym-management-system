@@ -25,6 +25,7 @@ import { MemberFormModal } from '../components/members/MemberFormModal'
 import { AddMembershipModal } from '../components/memberships/AddMembershipModal'
 import { RenewMembershipModal } from '../components/memberships/RenewMembershipModal'
 import { RecordPaymentModal } from '../components/payments/RecordPaymentModal'
+import { MemberRemindersCard } from '../components/reminders/MemberRemindersCard'
 import { useAuth } from '../hooks/useAuth'
 import { useMemberDetail } from '../hooks/useMemberDetail'
 import { useMemberMemberships } from '../hooks/useMemberMemberships'
@@ -639,24 +640,8 @@ export function MemberDetailPage() {
             </div>
           </Card>
 
-          {/* Reminder History Placeholder (Part 9) */}
-          <Card className="p-6">
-            <div className="flex items-center justify-between border-b border-white/[.07] pb-3">
-              <div className="flex items-center gap-2">
-                <MessageSquare size={16} className="text-zinc-400" />
-                <h3 className="text-sm font-semibold text-white">
-                  Automated Reminders
-                </h3>
-              </div>
-              <span className="rounded bg-white/[.06] px-2 py-0.5 text-[10px] uppercase font-semibold text-zinc-400">
-                Part 9
-              </span>
-            </div>
-            <div className="py-8 text-center text-xs text-zinc-500">
-              WhatsApp and SMS notification delivery status and schedule will be
-              viewable here once the Automated Reminders module is integrated (Part 9).
-            </div>
-          </Card>
+          {/* Automated Reminders & Message History (Part 9) */}
+          <MemberRemindersCard memberId={member.id} memberName={member.full_name} />
         </div>
       </div>
 

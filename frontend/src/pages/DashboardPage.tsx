@@ -4,6 +4,7 @@ import { DataTable } from '../components/DataTable'
 import { PageHeader } from '../components/PageHeader'
 import { StatCard } from '../components/StatCard'
 import { StatusBadge } from '../components/StatusBadge'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useDashboardData } from '../hooks/useDashboardData'
 import type { DashboardPendingPayment, DashboardRenewal } from '../types/dashboard'
@@ -74,11 +75,23 @@ function Action() {
   )
 }
 
-function SectionTitle({ title, action = 'View all' }: { title: string; action?: string }) {
+function SectionTitle({
+  title,
+  action = 'View all',
+  onClick,
+}: {
+  title: string
+  action?: string
+  onClick?: () => void
+}) {
   return (
     <div className="flex items-center justify-between px-5 py-4">
       <h2 className="text-base font-semibold text-white">{title}</h2>
-      <button className="flex items-center gap-1 text-xs font-semibold text-brand hover:text-red-400">
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex items-center gap-1 text-xs font-semibold text-brand hover:text-red-400"
+      >
         {action}
         <ArrowRight size={14} />
       </button>
@@ -103,6 +116,7 @@ function EmptyTableRow({ colSpan, message }: { colSpan: number; message: string 
 // ── Dashboard page ────────────────────────────────────────────────────────────
 
 export function DashboardPage() {
+  const navigate = useNavigate()
   const { profile } = useAuth()
   const { data, loading, error } = useDashboardData()
 
@@ -231,18 +245,87 @@ export function DashboardPage() {
           </DataTable>
         </Card>
 
-        {/* Reminder Summary — not yet available (Part 9) */}
-        <Card>
-          <SectionTitle title="Reminder Summary" action="Manage" />
-          <div className="flex flex-col items-center justify-center gap-3 px-5 py-10 text-center">
-            <div className="rounded-xl bg-zinc-800/60 p-3 text-zinc-500">
-              <Clock size={24} />
-            </div>
-            <p className="text-sm font-medium text-zinc-300">Automated Reminders</p>
-            <p className="max-w-[200px] text-xs leading-5 text-zinc-500">
-              Reminder data will appear here once the automated reminder engine
-              is configured.
-            </p>
+        {/* Reminder Summary — live real data (Part 9) */}
+        <Card className="flex flex-col">
+          <SectionTitle
+            title="Reminder Summary"
+            action="Manage"
+            onClick={() => navigate('/reminders')}
+          />
+          <div className="flex-1 px-5 pb-5">
+            {loading ? (
+              <div className="py-10 text-center text-xs text-zinc-500">Loading reminders…</div>
+            ) : (
+              <div className="space-y-4">
+                {/* Metrics Pill Row */}
+                <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/[.08] bg-white/[.02] p-3 text-center">
+                  <div>
+                    <p className="text-[10px] uppercase font-semibold tracking-wider text-zinc-500">
+                      Scheduled
+                    </p>
+                    <p className="mt-0.5 text-base font-bold text-amber-400">
+                      {data?.remindersSummary?.scheduledCount ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase font-semibold tracking-wider text-zinc-500">
+                      Sent
+                    </p>
+                    <p className="mt-0.5 text-base font-bold text-emerald-400">
+                      {data?.remindersSummary?.sentCount ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase font-semibold tracking-wider text-zinc-500">
+                      Failed
+                    </p>
+                    <p className="mt-0.5 text-base font-bold text-brand">
+                      {data?.remindersSummary?.failedCount ?? 0}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Recent reminders list */}
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                    Recent Activity (Simulated)
+                  </p>
+                  {(!data?.remindersSummary?.recentReminders ||
+                    data.remindersSummary.recentReminders.length === 0) ? (
+                    <div className="py-6 text-center text-xs text-zinc-500">
+                      No automated reminders logged yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {data.remindersSummary.recentReminders.slice(0, 4).map(rem => (
+                        <div
+                          key={rem.id}
+                          className="flex items-center justify-between rounded-lg border border-white/[.05] bg-white/[.02] p-2 text-xs"
+                        >
+                          <div className="truncate mr-2">
+                            <p className="font-semibold text-white truncate">{rem.memberName}</p>
+                            <p className="text-[10px] text-zinc-500 uppercase tracking-wide">
+                              {rem.reminderStage.replace(/_/g, ' ')} · {rem.channel}
+                            </p>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                              rem.status === 'scheduled'
+                                ? 'bg-amber-500/10 text-amber-300'
+                                : rem.status === 'sent' || rem.status === 'delivered'
+                                ? 'bg-emerald-500/10 text-emerald-400'
+                                : 'bg-red-950/30 text-brand'
+                            }`}
+                          >
+                            {rem.status === 'sent' ? 'Sent (Sim)' : rem.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       </div>

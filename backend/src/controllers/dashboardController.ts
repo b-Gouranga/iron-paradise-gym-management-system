@@ -96,6 +96,8 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
       plansRes,
       recentPaymentsRes,
       monthRevenueRes,
+      recentRemindersRes,
+      allRemindersRes,
     ] = await Promise.all([
       // 1. COUNT of all members
       supabase.from('members').select('*', { count: 'exact', head: true }),
@@ -129,6 +131,13 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
       supabase.from('payments')
         .select('amount')
         .gte('payment_date', monthStart),
+      // 11. 5 most recent reminders
+      supabase.from('reminders')
+        .select('id, reminder_stage, channel, status, scheduled_at, member_id')
+        .order('scheduled_at', { ascending: false })
+        .limit(5),
+      // 12. All reminder statuses (for counts)
+      supabase.from('reminders').select('status'),
     ])
 
     // Fail fast if any query errored
@@ -136,6 +145,7 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
       totalMembersRes, activeMembersRes, expiringSoonRes, expiredRes,
       membershipsRes, paymentSumsRes, membersRes, plansRes,
       recentPaymentsRes, monthRevenueRes,
+      recentRemindersRes, allRemindersRes,
     ] as const
     for (const r of results) {
       if (r.error) throw r.error
@@ -267,6 +277,35 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
       purpose: p.purpose,
     }))
 
+    // ── Reminders summary ───────────────────────────────────────────────────
+
+    let scheduledRemindersCount = 0
+    let sentRemindersCount = 0
+    let failedRemindersCount = 0
+    for (const r of (allRemindersRes.data ?? []) as Array<{ status: string }>) {
+      if (r.status === 'scheduled') scheduledRemindersCount++
+      else if (r.status === 'sent' || r.status === 'delivered') sentRemindersCount++
+      else if (r.status === 'failed') failedRemindersCount++
+    }
+
+    const recentRemindersList = (
+      (recentRemindersRes.data ?? []) as Array<{
+        id: string
+        reminder_stage: string
+        channel: string
+        status: string
+        scheduled_at: string
+        member_id: string
+      }>
+    ).map(r => ({
+      id: r.id,
+      memberName: memberMap.get(r.member_id) ?? 'Unknown Member',
+      reminderStage: r.reminder_stage,
+      channel: r.channel,
+      status: r.status,
+      scheduledAt: r.scheduled_at,
+    }))
+
     // ── Response ──────────────────────────────────────────────────────────────
 
     res.json({
@@ -284,6 +323,13 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
         renewals: renewalsList,
         pendingPayments: pendingList,
         recentPayments: recentPaymentsList,
+        remindersSummary: {
+          scheduledCount: scheduledRemindersCount,
+          sentCount: sentRemindersCount,
+          failedCount: failedRemindersCount,
+          totalCount: (allRemindersRes.data ?? []).length,
+          recentReminders: recentRemindersList,
+        },
       },
     })
   } catch (err) {

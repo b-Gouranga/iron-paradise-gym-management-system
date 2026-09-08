@@ -59,6 +59,23 @@ export interface DashboardRecentPayment {
   purpose: string
 }
 
+export interface DashboardReminderItem {
+  id: string
+  memberName: string
+  reminderStage: string
+  channel: string
+  status: string
+  scheduledAt: string
+}
+
+export interface DashboardRemindersSummary {
+  scheduledCount: number
+  sentCount: number
+  failedCount: number
+  totalCount: number
+  recentReminders: DashboardReminderItem[]
+}
+
 export interface DashboardData {
   stats: DashboardStats
   /** Active memberships expiring within 14 days (or up to 7 days ago if un-renewed). */
@@ -67,4 +84,6 @@ export interface DashboardData {
   pendingPayments: DashboardPendingPayment[]
   /** 10 most recently recorded payments. */
   recentPayments: DashboardRecentPayment[]
+  /** Real-time reminder counts and recent reminders (Part 9). */
+  remindersSummary?: DashboardRemindersSummary
 }
