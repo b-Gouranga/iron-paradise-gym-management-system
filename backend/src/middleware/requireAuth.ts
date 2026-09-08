@@ -12,8 +12,10 @@ import type { ProfileRole, ProfileRow } from '../types/auth.js'
  * - Extracts the Bearer token from `Authorization: Bearer <token>`
  * - Verifies it server-side via `supabase.auth.getUser(token)` — the token is
  *   NEVER decoded client-side or trusted from the request body.
- * - Attaches the verified `User` object to `req.authUser`.
- * - Returns 401 if missing or invalid.
+ * - Checks the user's active status from `profiles` to immediately reject
+ *   deactivated accounts with HTTP 403.
+ * - Attaches verified user to `req.authUser` and profile to `req.authProfile`.
+ * - Returns 401 if missing or invalid session.
  */
 export async function requireAuth(
   req: Request,
@@ -33,11 +35,31 @@ export async function requireAuth(
   const { data, error } = await supabase.auth.getUser(token)
 
   if (error || !data.user) {
-    res.status(401).json({ success: false, message: 'Invalid or expired session.' })
+    const isBanned = error?.message?.toLowerCase().includes('banned')
+    res.status(isBanned ? 403 : 401).json({
+      success: false,
+      message: isBanned ? 'Account is deactivated.' : 'Invalid or expired session.',
+    })
     return
   }
 
   req.authUser = data.user
+
+  // Verify account active status against profiles table
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', data.user.id)
+    .single<ProfileRow>()
+
+  if (profile) {
+    if (!profile.is_active) {
+      res.status(403).json({ success: false, message: 'Account is deactivated.' })
+      return
+    }
+    req.authProfile = profile
+  }
+
   next()
 }
 
@@ -50,14 +72,9 @@ export async function requireAuth(
  *
  * Must be used AFTER `requireAuth` (depends on `req.authUser`).
  *
- * - Loads the user's profile from the database using the verified user ID.
- *   The role is NEVER read from JWT claims or the request body.
+ * - Reuses verified profile from `req.authProfile` or loads from database.
  * - Checks that the profile exists, is active, and has the required role.
- * - Attaches the profile to `req.authProfile` for downstream use.
- * - Returns 403 if the user does not have the required role.
- *
- * @example
- *   router.delete('/plans/:id', requireAuth, requireRole('owner'), deletePlan)
+ * - Returns 403 if the user does not have the required role or is inactive.
  */
 export function requireRole(...roles: ProfileRole[]) {
   return async function (
@@ -70,21 +87,25 @@ export function requireRole(...roles: ProfileRole[]) {
       return
     }
 
-    const supabase = getSupabaseAdmin()
+    let profile = req.authProfile
+    if (!profile) {
+      const supabase = getSupabaseAdmin()
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', req.authUser.id)
+        .single<ProfileRow>()
 
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', req.authUser.id)
-      .single<ProfileRow>()
-
-    if (error || !profile) {
-      res.status(403).json({ success: false, message: 'Profile not found.' })
-      return
+      if (error || !data) {
+        res.status(403).json({ success: false, message: 'Profile not found.' })
+        return
+      }
+      profile = data
+      req.authProfile = profile
     }
 
     if (!profile.is_active) {
-      res.status(403).json({ success: false, message: 'Account is inactive.' })
+      res.status(403).json({ success: false, message: 'Account is deactivated.' })
       return
     }
 
@@ -93,7 +114,6 @@ export function requireRole(...roles: ProfileRole[]) {
       return
     }
 
-    req.authProfile = profile
     next()
   }
 }

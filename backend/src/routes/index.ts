@@ -8,6 +8,7 @@ import { membershipsRouter } from './membershipsRouter.js'
 import { paymentsRouter } from './paymentsRouter.js'
 import { remindersRouter } from './remindersRouter.js'
 import { reportsRouter } from './reportsRouter.js'
+import { trainersRouter } from './trainersRouter.js'
 
 export const apiRouter = Router()
 
@@ -37,3 +38,6 @@ apiRouter.use('/reminders', remindersRouter)
 
 // Reports routes — protected by requireAuth (enforced in reportsRouter)
 apiRouter.use('/reports', reportsRouter)
+
+// Trainers routes — protected by requireAuth and permissions (enforced in trainersRouter)
+apiRouter.use('/trainers', trainersRouter)

@@ -3,6 +3,7 @@ import {
   Calendar,
   CheckCircle2,
   Edit2,
+  Info,
   Plus,
   Power,
   RotateCcw,
@@ -73,13 +74,28 @@ export function MembershipPlansPage() {
           title="Membership Plans"
           description="Manage reusable membership plans, durations, and pricing templates."
         />
-        <div>
-          <Button onClick={handleOpenAdd} className="flex items-center gap-2">
-            <Plus size={16} />
-            Add Plan
-          </Button>
-        </div>
+        {isOwner && (
+          <div>
+            <Button onClick={handleOpenAdd} className="flex items-center gap-2">
+              <Plus size={16} />
+              Add Plan
+            </Button>
+          </div>
+        )}
       </div>
+
+      {/* Role Notice for Trainers */}
+      {!isOwner && (
+        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-sky-500/20 bg-sky-500/10 p-4 text-xs text-sky-300">
+          <Info size={18} className="shrink-0 text-sky-400" />
+          <div>
+            <p className="font-semibold text-white">Membership Plans Directory</p>
+            <p className="text-zinc-400 mt-0.5">
+              You are signed in as a Trainer. You have view access to membership plan templates and pricing. Creating, editing, activating, or deactivating plans is restricted to the gym owner.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Error Banner */}
       {error && (
@@ -147,7 +163,7 @@ export function MembershipPlansPage() {
                   ? 'Create your gym membership plan templates (e.g. Monthly, Quarterly, Annual) to start enrolling members.'
                   : `Try switching to "All Plans" to view all available templates.`}
               </p>
-              {filter === 'all' && (
+              {filter === 'all' && isOwner && (
                 <Button onClick={handleOpenAdd} className="mt-2 flex items-center gap-2">
                   <Plus size={16} />
                   Create First Plan
@@ -197,21 +213,21 @@ export function MembershipPlansPage() {
                     Duration: {formatDuration(plan.duration_value, plan.duration_unit)}
                   </span>
 
-                  <div className="flex items-center gap-2">
-                    {/* Edit button (Owner & Trainer) */}
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEdit(plan)}
-                      aria-label={`Edit ${plan.name}`}
-                      className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/[.08] hover:text-white"
-                      title="Edit Plan Template"
-                    >
-                      <Edit2 size={13} />
-                      Edit
-                    </button>
+                  {isOwner && (
+                    <div className="flex items-center gap-2">
+                      {/* Edit button (Owner Only) */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEdit(plan)}
+                        aria-label={`Edit ${plan.name}`}
+                        className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/[.08] hover:text-white"
+                        title="Edit Plan Template"
+                      >
+                        <Edit2 size={13} />
+                        Edit
+                      </button>
 
-                    {/* Deactivate / Reactivate button (Owner Only) */}
-                    {isOwner && (
+                      {/* Deactivate / Reactivate button (Owner Only) */}
                       <button
                         type="button"
                         onClick={() => setStatusDialogTarget(plan)}
@@ -239,8 +255,8 @@ export function MembershipPlansPage() {
                           </>
                         )}
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </Card>
             ))}

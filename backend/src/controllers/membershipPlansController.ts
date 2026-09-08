@@ -169,7 +169,7 @@ export async function createMembershipPlan(req: Request, res: Response): Promise
  * PATCH /api/membership-plans/:id
  *
  * Updates editable template fields of a membership plan.
- * Available to authenticated staff (Owner & Trainer).
+ * OWNER ONLY — enforced by requireRole('owner') in the router.
  *
  * CRITICAL HISTORICAL-FEE SAFETY RULE:
  * Modifying default_fee only changes this plan template for future memberships.
