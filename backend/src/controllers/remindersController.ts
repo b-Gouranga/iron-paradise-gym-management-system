@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
+import { logAuditEvent } from '../services/audit/auditService.js'
 import {
   ensureDefaultSettingsAndTemplates,
   generateReminders,
@@ -369,6 +370,18 @@ export async function updateReminderSetting(req: Request, res: Response): Promis
 
     if (error) throw error
 
+    await logAuditEvent({
+      actorId: req.authUser?.id,
+      entityType: 'reminder_setting',
+      entityId: updated.id,
+      action: 'reminder_setting_updated',
+      newData: {
+        reminder_stage: updated.reminder_stage,
+        is_enabled: updated.is_enabled,
+        channel: updated.channel,
+      },
+    })
+
     res.json({ success: true, data: updated })
   } catch (err) {
     console.error('[remindersController] updateReminderSetting error', err)
@@ -442,6 +455,18 @@ export async function updateMessageTemplate(req: Request, res: Response): Promis
       .single()
 
     if (error) throw error
+
+    await logAuditEvent({
+      actorId: req.authUser?.id,
+      entityType: 'message_template',
+      entityId: updated.id,
+      action: 'message_template_updated',
+      newData: {
+        reminder_stage: updated.reminder_stage,
+        channel: updated.channel,
+        is_active: updated.is_active,
+      },
+    })
 
     res.json({ success: true, data: updated })
   } catch (err) {

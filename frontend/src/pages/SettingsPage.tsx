@@ -6,6 +6,7 @@ import { GymProfileTab } from '../components/settings/GymProfileTab'
 import { OperationalDefaultsTab } from '../components/settings/OperationalDefaultsTab'
 import { ReminderOverviewTab } from '../components/settings/ReminderOverviewTab'
 import { MyAccountTab } from '../components/settings/MyAccountTab'
+import { AuditLogsTab } from '../components/settings/AuditLogsTab'
 import { fetchGymSettings, updateGymSettings, fetchMyProfile } from '../services/settingsService'
 import type { GymSettings, SettingsTab, UpdateGymSettingsInput } from '../types/settings'
 import type { UserProfile } from '../types/auth'
@@ -54,11 +55,18 @@ export function SettingsPage() {
     }
   }
 
+  useEffect(() => {
+    if (!isOwner && activeTab === 'audit') {
+      setActiveTab('gym')
+    }
+  }, [isOwner, activeTab])
+
   const tabs: Array<{ id: SettingsTab; label: string; ownerOnlyBadge?: boolean }> = [
     { id: 'gym', label: 'Gym Profile' },
     { id: 'defaults', label: 'Operational Defaults' },
     { id: 'reminders', label: 'Reminders' },
     { id: 'account', label: 'My Account' },
+    ...(isOwner ? [{ id: 'audit' as SettingsTab, label: 'Audit Logs', ownerOnlyBadge: true }] : []),
   ]
 
   return (
@@ -84,6 +92,11 @@ export function SettingsPage() {
                 }`}
               >
                 <span>{tab.label}</span>
+                {tab.ownerOnlyBadge && (
+                  <span className="rounded bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium text-brand border border-brand/20">
+                    Owner
+                  </span>
+                )}
               </button>
             )
           })}
@@ -133,6 +146,10 @@ export function SettingsPage() {
               accessToken={accessToken}
               onProfileUpdated={loadData}
             />
+          )}
+
+          {activeTab === 'audit' && isOwner && (
+            <AuditLogsTab accessToken={accessToken} />
           )}
         </div>
       )}

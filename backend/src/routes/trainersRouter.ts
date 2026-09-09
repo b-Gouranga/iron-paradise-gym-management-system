@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { requireAuth } from '../middleware/requireAuth.js'
 import { requirePermission } from '../middleware/permissions.js'
+import { sensitiveAuthLimiter } from '../middleware/rateLimiter.js'
 import {
   listTrainers,
   getTrainer,
@@ -28,4 +29,10 @@ trainersRouter.post('/', requireAuth, requirePermission('trainer:create'), creat
 trainersRouter.patch('/:id', requireAuth, requirePermission('trainer:update'), updateTrainer)
 trainersRouter.patch('/:id/activate', requireAuth, requirePermission('trainer:activate'), activateTrainer)
 trainersRouter.patch('/:id/deactivate', requireAuth, requirePermission('trainer:deactivate'), deactivateTrainer)
-trainersRouter.post('/:id/reset-password', requireAuth, requirePermission('trainer:update'), resetTrainerPassword)
+trainersRouter.post(
+  '/:id/reset-password',
+  requireAuth,
+  requirePermission('trainer:update'),
+  sensitiveAuthLimiter,
+  resetTrainerPassword,
+)

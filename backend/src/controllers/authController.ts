@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
+import { logAuditEvent } from '../services/audit/auditService.js'
 
 // ---------------------------------------------------------------------------
 // POST /api/auth/setup-owner
@@ -138,6 +139,18 @@ export async function setupOwner(req: Request, res: Response): Promise<void> {
     })
     return
   }
+
+  await logAuditEvent({
+    actorId: newUserId,
+    entityType: 'profile',
+    entityId: newUserId,
+    action: 'owner_setup',
+    newData: {
+      email: email.trim().toLowerCase(),
+      full_name: fullName.trim(),
+      role: 'owner',
+    },
+  })
 
   res.status(201).json({
     success: true,

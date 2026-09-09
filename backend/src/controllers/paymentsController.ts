@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
+import { logAuditEvent } from '../services/audit/auditService.js'
 import type {
   MembershipPaymentSummary,
   MemberPaymentSummary,
@@ -580,6 +581,20 @@ export async function recordPayment(req: Request, res: Response): Promise<void> 
       .single()
 
     if (insertErr) throw insertErr
+
+    await logAuditEvent({
+      actorId: req.authUser?.id,
+      entityType: 'payment',
+      entityId: newPayment.id,
+      action: 'payment_recorded',
+      newData: {
+        member_id: newPayment.member_id,
+        membership_id: newPayment.membership_id,
+        amount: newPayment.amount,
+        payment_method: newPayment.payment_method,
+        purpose: newPayment.purpose,
+      },
+    })
 
     // 5. Compute updated balance
     const newTotalPaid = Math.round((existingTotalPaid + paymentAmount) * 100) / 100

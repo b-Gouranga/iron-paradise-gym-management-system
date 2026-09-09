@@ -34,4 +34,4 @@ export interface ChangePasswordInput {
   newPassword: string
 }
 
-export type SettingsTab = 'gym' | 'defaults' | 'reminders' | 'account'
+export type SettingsTab = 'gym' | 'defaults' | 'reminders' | 'account' | 'audit'

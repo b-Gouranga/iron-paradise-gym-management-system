@@ -45,21 +45,24 @@ export async function requireAuth(
 
   req.authUser = data.user
 
-  // Verify account active status against profiles table
+  // Verify account exists and active status against profiles table
   const { data: profile } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', data.user.id)
     .single<ProfileRow>()
 
-  if (profile) {
-    if (!profile.is_active) {
-      res.status(403).json({ success: false, message: 'Account is deactivated.' })
-      return
-    }
-    req.authProfile = profile
+  if (!profile) {
+    res.status(403).json({ success: false, message: 'Profile not found or access denied.' })
+    return
   }
 
+  if (!profile.is_active) {
+    res.status(403).json({ success: false, message: 'Account is deactivated.' })
+    return
+  }
+
+  req.authProfile = profile
   next()
 }
 

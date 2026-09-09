@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { requireAuth, requireRole } from '../middleware/requireAuth.js'
+import { sensitiveAuthLimiter } from '../middleware/rateLimiter.js'
 import {
   changePassword,
   getGymSettings,
@@ -27,4 +28,4 @@ settingsRouter.patch('/gym', requireAuth, requireRole('owner'), updateGymSetting
 // Current staff account settings
 settingsRouter.get('/profile', requireAuth, getMyProfile)
 settingsRouter.patch('/profile', requireAuth, updateMyProfile)
-settingsRouter.post('/change-password', requireAuth, changePassword)
+settingsRouter.post('/change-password', requireAuth, sensitiveAuthLimiter, changePassword)

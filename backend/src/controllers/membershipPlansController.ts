@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
+import { logAuditEvent } from '../services/audit/auditService.js'
 import type { DurationUnit, MembershipPlanFilter } from '../types/membershipPlans.js'
 
 const VALID_DURATION_UNITS: DurationUnit[] = ['days', 'months', 'years']
@@ -158,6 +159,19 @@ export async function createMembershipPlan(req: Request, res: Response): Promise
       throw error
     }
 
+    await logAuditEvent({
+      actorId: req.authUser?.id,
+      entityType: 'membership_plan',
+      entityId: newPlan.id,
+      action: 'membership_plan_created',
+      newData: {
+        name: newPlan.name,
+        duration_value: newPlan.duration_value,
+        duration_unit: newPlan.duration_unit,
+        price: newPlan.price,
+      },
+    })
+
     res.status(201).json({ success: true, data: newPlan })
   } catch (err) {
     console.error('[membershipPlansController] createMembershipPlan error', err)
@@ -260,6 +274,14 @@ export async function updateMembershipPlan(req: Request, res: Response): Promise
       throw error
     }
 
+    await logAuditEvent({
+      actorId: req.authUser?.id,
+      entityType: 'membership_plan',
+      entityId: id,
+      action: 'membership_plan_updated',
+      newData: updates,
+    })
+
     res.json({ success: true, data: updated })
   } catch (err) {
     console.error('[membershipPlansController] updateMembershipPlan error', err)
@@ -293,6 +315,14 @@ export async function archiveMembershipPlan(req: Request, res: Response): Promis
     }
     if (error) throw error
 
+    await logAuditEvent({
+      actorId: req.authUser?.id,
+      entityType: 'membership_plan',
+      entityId: id,
+      action: 'membership_plan_archived',
+      newData: { is_active: false, name: updated.name },
+    })
+
     res.json({ success: true, data: updated })
   } catch (err) {
     console.error('[membershipPlansController] archiveMembershipPlan error', err)
@@ -323,6 +353,14 @@ export async function reactivateMembershipPlan(req: Request, res: Response): Pro
       return
     }
     if (error) throw error
+
+    await logAuditEvent({
+      actorId: req.authUser?.id,
+      entityType: 'membership_plan',
+      entityId: id,
+      action: 'membership_plan_reactivated',
+      newData: { is_active: true, name: updated.name },
+    })
 
     res.json({ success: true, data: updated })
   } catch (err) {

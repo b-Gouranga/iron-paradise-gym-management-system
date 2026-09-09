@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
+import { logAuditEvent } from '../services/audit/auditService.js'
 import type { DurationUnit } from '../types/membershipPlans.js'
 import type {
   MembershipPlanSummary,
@@ -395,6 +396,20 @@ export async function createMembership(req: Request, res: Response): Promise<voi
 
     if (insertErr) throw insertErr
 
+    await logAuditEvent({
+      actorId: req.authUser?.id,
+      entityType: 'membership',
+      entityId: newMembership.id,
+      action: 'membership_created',
+      newData: {
+        member_id: newMembership.member_id,
+        plan_id: newMembership.plan_id,
+        start_date: newMembership.start_date,
+        expiry_date: newMembership.expiry_date,
+        actual_fee: newMembership.actual_fee,
+      },
+    })
+
     res.status(201).json({ success: true, data: newMembership })
   } catch (err) {
     console.error('[membershipsController] createMembership error', err)
@@ -539,6 +554,20 @@ export async function renewMembership(req: Request, res: Response): Promise<void
 
     if (insertErr) throw insertErr
 
+    await logAuditEvent({
+      actorId: req.authUser?.id,
+      entityType: 'membership',
+      entityId: renewedMembership.id,
+      action: 'membership_renewed',
+      newData: {
+        member_id: renewedMembership.member_id,
+        previous_membership_id: previous.id,
+        start_date: renewedMembership.start_date,
+        expiry_date: renewedMembership.expiry_date,
+        actual_fee: renewedMembership.actual_fee,
+      },
+    })
+
     res.status(201).json({ success: true, data: renewedMembership })
   } catch (err) {
     console.error('[membershipsController] renewMembership error', err)
@@ -623,6 +652,19 @@ export async function updateMembership(req: Request, res: Response): Promise<voi
       return
     }
     if (error) throw error
+
+    if (updates.status === 'cancelled') {
+      await logAuditEvent({
+        actorId: req.authUser?.id,
+        entityType: 'membership',
+        entityId: id,
+        action: 'membership_cancelled',
+        newData: {
+          member_id: updated.member_id,
+          status: 'cancelled',
+        },
+      })
+    }
 
     res.json({ success: true, data: updated })
   } catch (err) {

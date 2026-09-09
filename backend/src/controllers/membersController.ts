@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
 import type { MemberFilter } from '../types/members.js'
 import { getEffectiveMembershipStatus, selectCurrentMembership } from '../utils/membershipStatus.js'
+import { logAuditEvent } from '../services/audit/auditService.js'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -449,6 +450,21 @@ export async function createMember(req: Request, res: Response): Promise<void> {
       break
     }
 
+    if (newMember) {
+      await logAuditEvent({
+        actorId: req.authUser?.id,
+        entityType: 'member',
+        entityId: newMember.id,
+        action: 'member_created',
+        newData: {
+          member_code: newMember.member_code,
+          full_name: newMember.full_name,
+          phone: newMember.phone,
+          status: newMember.status,
+        },
+      })
+    }
+
     res.status(201).json({ success: true, data: newMember })
   } catch (err) {
     console.error('[membersController] createMember error', err)
@@ -545,6 +561,14 @@ export async function updateMember(req: Request, res: Response): Promise<void> {
     }
     if (error) throw error
 
+    await logAuditEvent({
+      actorId: req.authUser?.id,
+      entityType: 'member',
+      entityId: id,
+      action: 'member_updated',
+      newData: updates,
+    })
+
     res.json({ success: true, data: updated })
   } catch (err) {
     console.error('[membersController] updateMember error', err)
@@ -585,6 +609,14 @@ export async function archiveMember(req: Request, res: Response): Promise<void> 
       return
     }
     if (error) throw error
+
+    await logAuditEvent({
+      actorId: req.authUser?.id,
+      entityType: 'member',
+      entityId: id,
+      action: 'member_archived',
+      newData: { status: 'inactive' },
+    })
 
     res.json({ success: true, data: updated })
   } catch (err) {
