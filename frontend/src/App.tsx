@@ -13,11 +13,10 @@ import { RemindersPage } from './pages/RemindersPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { TrainersPage } from './pages/TrainersPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { RenewalsPage } from './pages/RenewalsPage'
 import { ComingSoonPage } from './pages/ComingSoonPage'
 
-const futureRoutes = [
-  '/renewals',
-]
+const futureRoutes: string[] = []
 
 export default function App() {
   return (
@@ -39,6 +38,7 @@ export default function App() {
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/trainers" element={<TrainersPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/renewals" element={<RenewalsPage />} />
             {futureRoutes.map((path) => (
               <Route key={path} path={path} element={<ComingSoonPage />} />
             ))}

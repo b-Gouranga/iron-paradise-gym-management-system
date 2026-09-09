@@ -54,8 +54,8 @@ function Sidebar({ close }: { close?: () => void }) {
       </nav>
 
       <div className="mt-auto rounded-xl border border-white/[.07] bg-white/[.025] p-3">
-        <p className="text-xs font-semibold text-zinc-300">Iron Paradise v0.11</p>
-        <p className="mt-1 text-xs leading-5 text-zinc-500">Trainers · Part 11</p>
+        <p className="text-xs font-semibold text-zinc-300">Iron Paradise v1.0</p>
+        <p className="mt-1 text-xs leading-5 text-zinc-500">System Integration · Part 14</p>
       </div>
     </aside>
   )

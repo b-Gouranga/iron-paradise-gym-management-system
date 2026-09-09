@@ -28,6 +28,7 @@ export interface DashboardStats {
 
 export interface DashboardRenewal {
   membershipId: string
+  memberId?: string
   memberName: string
   planName: string
   /** ISO date string YYYY-MM-DD */
@@ -39,6 +40,7 @@ export interface DashboardRenewal {
 
 export interface DashboardPendingPayment {
   membershipId: string
+  memberId?: string
   memberName: string
   planName: string
   actualFee: number
@@ -51,6 +53,7 @@ export interface DashboardPendingPayment {
 
 export interface DashboardRecentPayment {
   paymentId: string
+  memberId?: string
   memberName: string
   amount: number
   /** ISO date string YYYY-MM-DD */

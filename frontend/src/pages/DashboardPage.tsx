@@ -1,10 +1,19 @@
-import { AlertTriangle, ArrowRight, Clock, MoreHorizontal } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import {
+  AlertTriangle,
+  ArrowRight,
+  Clock,
+  CreditCard,
+  MoreHorizontal,
+  RefreshCw,
+  User,
+} from 'lucide-react'
 import { Card } from '../components/Card'
 import { DataTable } from '../components/DataTable'
 import { PageHeader } from '../components/PageHeader'
 import { StatCard } from '../components/StatCard'
 import { StatusBadge } from '../components/StatusBadge'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useDashboardData } from '../hooks/useDashboardData'
 import type { DashboardPendingPayment, DashboardRenewal } from '../types/dashboard'
@@ -64,14 +73,71 @@ function pendingStatus(s: DashboardPendingPayment['paymentStatus']): Status {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function Action() {
+interface RowActionMenuItem {
+  label: string
+  icon?: React.ReactNode
+  onClick: () => void
+}
+
+function RowActionMenu({ items }: { items: RowActionMenuItem[] }) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
   return (
-    <button
-      aria-label="More actions"
-      className="rounded p-1 text-zinc-500 hover:bg-white/[.06] hover:text-white"
-    >
-      <MoreHorizontal size={18} />
-    </button>
+    <div className="relative inline-block text-left" ref={menuRef}>
+      <button
+        type="button"
+        aria-label="Row actions"
+        aria-expanded={open}
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen(!open)
+        }}
+        className="rounded p-1 text-zinc-400 hover:bg-white/[.08] hover:text-white transition"
+      >
+        <MoreHorizontal size={18} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 z-50 mt-1 w-44 rounded-lg border border-white/10 bg-[#161619] py-1 shadow-2xl ring-1 ring-black/50 focus:outline-none">
+          {items.map((item, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setOpen(false)
+                item.onClick()
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-zinc-300 hover:bg-white/[.07] hover:text-white transition"
+            >
+              {item.icon && <span className="text-zinc-400">{item.icon}</span>}
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -204,7 +270,11 @@ export function DashboardPage() {
       {/* ── Upcoming Renewals + Reminder Summary ────────────────────────────── */}
       <div className="mt-7 grid gap-7 xl:grid-cols-3">
         <Card className="xl:col-span-2">
-          <SectionTitle title="Upcoming Renewals" />
+          <SectionTitle
+            title="Upcoming Renewals"
+            action="View all"
+            onClick={() => navigate('/renewals')}
+          />
           <DataTable
             headers={['Member', 'Membership Plan', 'Expiry Date', 'Days Left', 'Fee', 'Status', '']}
           >
@@ -216,7 +286,14 @@ export function DashboardPage() {
             ) : (
               (data?.renewals ?? []).map(r => (
                 <tr key={r.membershipId}>
-                  <td className="table-cell font-semibold text-white">{r.memberName}</td>
+                  <td className="table-cell">
+                    <Link
+                      to={r.memberId ? `/members/${r.memberId}` : '/renewals'}
+                      className="font-semibold text-white hover:text-brand transition"
+                    >
+                      {r.memberName}
+                    </Link>
+                  </td>
                   <td className="table-cell">{r.planName}</td>
                   <td className="table-cell">{formatDate(r.expiryDate)}</td>
                   <td
@@ -237,7 +314,30 @@ export function DashboardPage() {
                     <StatusBadge status={renewalStatus(r)} />
                   </td>
                   <td className="table-cell">
-                    <Action />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => navigate('/renewals')}
+                        className="rounded-md bg-brand/10 px-2.5 py-1 text-xs font-semibold text-brand hover:bg-brand/20 transition"
+                        title="Renew membership in Renewals Workbench"
+                      >
+                        Renew
+                      </button>
+                      <RowActionMenu
+                        items={[
+                          {
+                            label: 'Renew Membership',
+                            icon: <RefreshCw size={13} />,
+                            onClick: () => navigate('/renewals'),
+                          },
+                          {
+                            label: 'View Member Details',
+                            icon: <User size={13} />,
+                            onClick: () => navigate(r.memberId ? `/members/${r.memberId}` : '/members'),
+                          },
+                        ]}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))
@@ -300,7 +400,9 @@ export function DashboardPage() {
                       {data.remindersSummary.recentReminders.slice(0, 4).map(rem => (
                         <div
                           key={rem.id}
-                          className="flex items-center justify-between rounded-lg border border-white/[.05] bg-white/[.02] p-2 text-xs"
+                          onClick={() => navigate('/reminders')}
+                          className="flex items-center justify-between rounded-lg border border-white/[.05] bg-white/[.02] p-2 text-xs hover:bg-white/[.06] hover:border-white/10 cursor-pointer transition"
+                          title="View in Reminders Workbench"
                         >
                           <div className="truncate mr-2">
                             <p className="font-semibold text-white truncate">{rem.memberName}</p>
@@ -333,7 +435,11 @@ export function DashboardPage() {
       {/* ── Pending Payments + Recent Payments ──────────────────────────────── */}
       <div className="mt-7 grid gap-7 xl:grid-cols-2">
         <Card>
-          <SectionTitle title="Pending Payments" />
+          <SectionTitle
+            title="Pending Payments"
+            action="View all"
+            onClick={() => navigate('/payments')}
+          />
           <DataTable
             headers={['Member', 'Membership', 'Pending', 'Due Date', 'Status', '']}
           >
@@ -345,7 +451,14 @@ export function DashboardPage() {
             ) : (
               (data?.pendingPayments ?? []).map(p => (
                 <tr key={p.membershipId}>
-                  <td className="table-cell font-semibold text-white">{p.memberName}</td>
+                  <td className="table-cell">
+                    <Link
+                      to={p.memberId ? `/members/${p.memberId}` : '/payments'}
+                      className="font-semibold text-white hover:text-brand transition"
+                    >
+                      {p.memberName}
+                    </Link>
+                  </td>
                   <td className="table-cell">{p.planName}</td>
                   <td className="table-cell font-semibold">
                     {formatINR(p.pendingAmount)}
@@ -357,7 +470,30 @@ export function DashboardPage() {
                     <StatusBadge status={pendingStatus(p.paymentStatus)} />
                   </td>
                   <td className="table-cell">
-                    <Action />
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => navigate(p.memberId ? `/members/${p.memberId}` : '/payments')}
+                        className="rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 transition"
+                        title="View member or record payment"
+                      >
+                        View
+                      </button>
+                      <RowActionMenu
+                        items={[
+                          {
+                            label: 'Record Payment',
+                            icon: <CreditCard size={13} />,
+                            onClick: () => navigate(p.memberId ? `/members/${p.memberId}` : '/payments'),
+                          },
+                          {
+                            label: 'View Member Details',
+                            icon: <User size={13} />,
+                            onClick: () => navigate(p.memberId ? `/members/${p.memberId}` : '/members'),
+                          },
+                        ]}
+                      />
+                    </div>
                   </td>
                 </tr>
               ))
@@ -366,7 +502,11 @@ export function DashboardPage() {
         </Card>
 
         <Card>
-          <SectionTitle title="Recent Payments" />
+          <SectionTitle
+            title="Recent Payments"
+            action="View all"
+            onClick={() => navigate('/payments')}
+          />
           <DataTable headers={['Member', 'Amount', 'Date', 'Method', 'Status']}>
             {!loading && (data?.recentPayments.length ?? 0) === 0 ? (
               <EmptyTableRow
@@ -376,7 +516,14 @@ export function DashboardPage() {
             ) : (
               (data?.recentPayments ?? []).map(p => (
                 <tr key={p.paymentId}>
-                  <td className="table-cell font-semibold text-white">{p.memberName}</td>
+                  <td className="table-cell">
+                    <Link
+                      to={p.memberId ? `/members/${p.memberId}` : '/payments'}
+                      className="font-semibold text-white hover:text-brand transition"
+                    >
+                      {p.memberName}
+                    </Link>
+                  </td>
                   <td className="table-cell font-semibold text-emerald-300">
                     {formatINR(p.amount)}
                   </td>

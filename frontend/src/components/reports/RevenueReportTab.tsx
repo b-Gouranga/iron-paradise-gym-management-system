@@ -141,19 +141,29 @@ export function RevenueReportTab({
           </div>
         ) : (
           <div className="mt-6">
-            <div className="flex h-56 items-end gap-3 overflow-x-auto pb-2 pt-6">
+            <div className="flex h-72 items-end gap-3 overflow-x-auto pb-3 pt-14 px-4 sm:px-6">
               {data.time_series.map((point, idx) => {
                 const heightPercent = Math.max(
                   6,
                   Math.round((point.amount / maxSeriesAmount) * 100),
                 )
+                const isFirst = idx === 0 && data.time_series.length > 1
+                const isLast = idx === data.time_series.length - 1 && data.time_series.length > 1
+                const tooltipAlign = isFirst
+                  ? 'left-0'
+                  : isLast
+                    ? 'right-0'
+                    : 'left-1/2 -translate-x-1/2'
+
                 return (
                   <div
                     key={idx}
                     className="group relative flex flex-1 min-w-[50px] max-w-[90px] flex-col items-center gap-2"
                   >
                     {/* Tooltip on hover */}
-                    <div className="pointer-events-none absolute -top-12 z-20 hidden whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900 px-2.5 py-1.5 text-center shadow-xl group-hover:block">
+                    <div
+                      className={`pointer-events-none absolute -top-12 ${tooltipAlign} z-30 hidden whitespace-nowrap rounded-lg border border-white/10 bg-zinc-900 px-2.5 py-1.5 text-center shadow-xl group-hover:block`}
+                    >
                       <p className="text-xs font-bold text-white">₹{formatINR(point.amount)}</p>
                       <p className="text-[10px] text-zinc-400">
                         {point.count} txn{point.count === 1 ? '' : 's'}

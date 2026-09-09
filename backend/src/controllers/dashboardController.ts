@@ -207,6 +207,7 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
     let pendingPaymentsCount = 0
     const pendingList: Array<{
       membershipId: string
+      memberId: string
       memberName: string
       planName: string
       actualFee: number
@@ -227,6 +228,7 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
             m.payment_due_date != null && m.payment_due_date < today
           pendingList.push({
             membershipId: m.id,
+            memberId: m.member_id,
             memberName: memberMap.get(m.member_id) ?? 'Unknown',
             planName: planMap.get(m.plan_id) ?? 'Unknown Plan',
             actualFee: Number(m.actual_fee),
@@ -264,6 +266,7 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
         const daysLeft = Math.round((expiryMs - nowMs) / 86_400_000)
         return {
           membershipId: m.id,
+          memberId: m.member_id,
           memberName: memberMap.get(m.member_id) ?? 'Unknown',
           planName: planMap.get(m.plan_id) ?? 'Unknown Plan',
           expiryDate: m.expiry_date,
@@ -278,6 +281,7 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
       (recentPaymentsRes.data ?? []) as unknown as RecentPaymentRow[]
     ).map(p => ({
       paymentId: p.id,
+      memberId: p.member_id,
       memberName: memberMap.get(p.member_id) ?? 'Unknown',
       amount: Number(p.amount),
       paymentDate: p.payment_date,

@@ -11,6 +11,7 @@ import { reportsRouter } from './reportsRouter.js'
 import { trainersRouter } from './trainersRouter.js'
 import { settingsRouter } from './settingsRouter.js'
 import { auditLogsRouter } from './auditLogsRouter.js'
+import { renewalsRouter } from './renewalsRouter.js'
 
 export const apiRouter = Router()
 
@@ -49,3 +50,6 @@ apiRouter.use('/settings', settingsRouter)
 
 // Audit logs routes — Owner-only (enforced in auditLogsRouter)
 apiRouter.use('/audit-logs', auditLogsRouter)
+
+// Renewals workbench routes — protected by requireAuth (enforced in renewalsRouter)
+apiRouter.use('/renewals', renewalsRouter)
