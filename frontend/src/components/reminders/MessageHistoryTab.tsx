@@ -102,9 +102,10 @@ export function MessageHistoryTab({
             className="rounded-lg border border-white/10 bg-white/[.04] px-3 py-1.5 text-xs text-zinc-300 outline-none focus:border-brand/70"
           >
             <option value="all" className="bg-[#1C1C1F]">All Statuses</option>
-            <option value="sent" className="bg-[#1C1C1F]">Sent (Simulated)</option>
-            <option value="delivered" className="bg-[#1C1C1F]">Delivered (Simulated)</option>
-            <option value="failed" className="bg-[#1C1C1F]">Failed (Simulated)</option>
+            <option value="sent" className="bg-[#1C1C1F]">Sent</option>
+            <option value="delivered" className="bg-[#1C1C1F]">Delivered</option>
+            <option value="read" className="bg-[#1C1C1F]">Read</option>
+            <option value="failed" className="bg-[#1C1C1F]">Failed</option>
           </select>
 
           {/* Channel filter */}
@@ -115,7 +116,6 @@ export function MessageHistoryTab({
           >
             <option value="all" className="bg-[#1C1C1F]">All Channels</option>
             <option value="whatsapp" className="bg-[#1C1C1F]">WhatsApp</option>
-            <option value="sms" className="bg-[#1C1C1F]">SMS</option>
           </select>
         </div>
       </Card>
@@ -202,21 +202,39 @@ export function MessageHistoryTab({
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-semibold ${
-                            isFailed
+                            h.status === 'failed'
                               ? 'border-red-800/40 bg-red-950/30 text-brand'
-                              : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+                              : h.status === 'sent'
+                              ? 'border-blue-500/20 bg-blue-500/10 text-blue-400'
+                              : h.status === 'delivered'
+                              ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+                              : h.status === 'read'
+                              ? 'border-teal-500/20 bg-teal-500/10 text-teal-300'
+                              : 'border-zinc-700 bg-zinc-800 text-zinc-400'
                           }`}
                         >
-                          {isFailed ? (
+                          {h.status === 'failed' ? (
                             <>
                               <XCircle size={10} />
-                              Failed (Simulated)
+                              {h.is_simulated ? 'Failed (Simulated)' : 'Failed'}
                             </>
-                          ) : (
+                          ) : h.status === 'sent' ? (
                             <>
                               <CheckCircle2 size={10} />
-                              Sent (Simulated)
+                              {h.is_simulated ? 'Sent (Simulated)' : 'Sent'}
                             </>
+                          ) : h.status === 'delivered' ? (
+                            <>
+                              <CheckCircle2 size={10} />
+                              Delivered
+                            </>
+                          ) : h.status === 'read' ? (
+                            <>
+                              <CheckCircle2 size={10} />
+                              Read
+                            </>
+                          ) : (
+                            h.status
                           )}
                         </span>
                         {h.failure_reason && (

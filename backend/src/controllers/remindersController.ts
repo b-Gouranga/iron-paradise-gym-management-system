@@ -1,15 +1,22 @@
 import type { Request, Response } from 'express'
+import { env } from '../config/env.js'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
 import { logAuditEvent } from '../services/audit/auditService.js'
+import { notificationService } from '../services/notifications/notificationService.js'
 import {
   ensureDefaultSettingsAndTemplates,
   generateReminders,
   processReminders,
 } from '../services/reminders/reminderEngine.js'
 import {
+  DEFAULT_TEMPLATES,
   getSampleTemplateContext,
   renderTemplate,
 } from '../services/reminders/templateEngine.js'
+import {
+  isMembershipActive,
+  selectCurrentMembership,
+} from '../utils/membershipStatus.js'
 import type {
   MessageHistoryRow,
   MessageHistoryWithDetails,
@@ -20,6 +27,7 @@ import type {
   ReminderStatsSummary,
   ReminderStatus,
   ReminderWithDetails,
+  TemplateContext,
 } from '../types/reminders.js'
 
 /**
@@ -154,7 +162,7 @@ export async function listReminders(req: Request, res: Response): Promise<void> 
         plan_name: ms?.plan_name ?? 'Standard Plan',
         expiry_date: ms?.expiry_date,
         payment_due_date: ms?.payment_due_date,
-        is_simulated: true,
+        is_simulated: env.messagingProvider === 'mock',
       }
     })
 
@@ -278,7 +286,7 @@ export async function listMessageHistory(req: Request, res: Response): Promise<v
         member_code: m?.member_code ?? '—',
         member_phone: m?.phone ?? '—',
         plan_name: planLookup.get(h.membership_id) ?? 'Standard Plan',
-        is_simulated: true,
+        is_simulated: h.provider_message_id?.startsWith('mock-') ?? (env.messagingProvider === 'mock'),
       }
     })
 
@@ -611,12 +619,341 @@ export async function sendReminder(req: Request, res: Response): Promise<void> {
 
     res.json({
       success: true,
-      message: 'Reminder dispatched via simulated provider.',
+      message: 'Reminder dispatched.',
       data: result.results[0],
     })
   } catch (err) {
     console.error('[remindersController] sendReminder error', err)
     res.status(500).json({ success: false, message: 'Failed to send reminder.' })
+  }
+}
+
+/**
+ * POST /api/reminders/:id/retry
+ *
+ * Retries a failed reminder. Permitted for both Owner and Trainer.
+ */
+export async function retryReminder(req: Request, res: Response): Promise<void> {
+  const reminderId = String(req.params.id || '').trim()
+  const { simulateFailure, failureReason } = req.body ?? {}
+  const supabase = getSupabaseAdmin()
+
+  if (!reminderId) {
+    res.status(400).json({ success: false, message: 'Reminder ID is required.' })
+    return
+  }
+
+  try {
+    const { data: rem, error: fetchErr } = await supabase
+      .from('reminders')
+      .select('*')
+      .eq('id', reminderId)
+      .maybeSingle()
+
+    if (fetchErr || !rem) {
+      res.status(404).json({ success: false, message: 'Reminder not found.' })
+      return
+    }
+
+    if (rem.status !== 'failed') {
+      res.status(400).json({
+        success: false,
+        message: `Only failed reminders can be retried. Current status is "${rem.status}".`,
+      })
+      return
+    }
+
+    // Reset reminder to 'scheduled' and dispatch
+    await supabase
+      .from('reminders')
+      .update({ status: 'scheduled', updated_at: new Date().toISOString() })
+      .eq('id', reminderId)
+
+    const result = await processReminders({
+      reminderId,
+      simulateFailure: Boolean(simulateFailure),
+      failureReason: typeof failureReason === 'string' ? failureReason : undefined,
+    })
+
+    if (result.processedCount === 0) {
+      res.status(500).json({ success: false, message: 'Failed to process reminder retry.' })
+      return
+    }
+
+    res.json({
+      success: true,
+      message: 'Reminder retry dispatched.',
+      data: result.results[0],
+    })
+  } catch (err) {
+    console.error('[remindersController] retryReminder error', err)
+    res.status(500).json({ success: false, message: 'Failed to retry reminder.' })
+  }
+}
+
+/**
+ * In-flight lock set to prevent concurrent duplicate manual requests
+ * for the same member + membership + reminder stage.
+ */
+const inFlightManualSends = new Set<string>()
+
+/**
+ * Cooldown window (in milliseconds) to prevent rapid duplicate manual sends
+ * for the same member, membership, and stage after a successful send.
+ */
+const RAPID_DUPLICATE_COOLDOWN_MS = 60 * 1000 // 60 seconds
+
+/**
+ * POST /api/reminders/manual
+ *
+ * Sends a manual WhatsApp reminder for a member's active membership.
+ * Permitted for both Owner and Trainer. Respects WhatsApp opt-in.
+ */
+export async function manualSendReminder(req: Request, res: Response): Promise<void> {
+  const memberId = String(req.body?.memberId || req.body?.member_id || '').trim()
+  const reminderStage = String(req.body?.reminderStage || req.body?.stage || '').trim()
+  const providedMembershipId = req.body?.membershipId || req.body?.membership_id
+    ? String(req.body?.membershipId || req.body?.membership_id).trim()
+    : undefined
+  const supabase = getSupabaseAdmin()
+
+  if (!memberId || !reminderStage) {
+    res.status(400).json({
+      success: false,
+      message: 'memberId and reminderStage are required.',
+    })
+    return
+  }
+
+  if (!DEFAULT_TEMPLATES[reminderStage as ReminderStage]) {
+    res.status(400).json({
+      success: false,
+      message: 'Invalid reminder stage.',
+    })
+    return
+  }
+
+  try {
+    // 1. Fetch member details
+    const { data: member, error: memberErr } = await supabase
+      .from('members')
+      .select('*')
+      .eq('id', memberId)
+      .single()
+
+    if (memberErr || !member) {
+      res.status(404).json({ success: false, message: 'Member not found.' })
+      return
+    }
+
+    // 2. Fetch all memberships for this member with plan details
+    const { data: rawMemberships, error: msErr } = await supabase
+      .from('memberships')
+      .select('*, membership_plans(name)')
+      .eq('member_id', memberId)
+      .order('created_at', { ascending: false })
+
+    if (msErr) throw msErr
+
+    const memberships = (rawMemberships ?? []) as any[]
+
+    // 3. Resolve active membership using centralized lifecycle logic
+    let targetMembership: any = null
+
+    if (providedMembershipId) {
+      const found = memberships.find(m => m.id === providedMembershipId)
+      if (!found) {
+        // Check if this membership belongs to someone else
+        const { data: otherMs } = await supabase
+          .from('memberships')
+          .select('id, member_id')
+          .eq('id', providedMembershipId)
+          .single()
+
+        if (otherMs && otherMs.member_id !== memberId) {
+          res.status(400).json({
+            success: false,
+            message: 'Membership does not belong to the requested member.',
+          })
+          return
+        }
+
+        res.status(404).json({ success: false, message: 'Membership not found.' })
+        return
+      }
+
+      if (!isMembershipActive(found)) {
+        res.status(400).json({
+          success: false,
+          message: 'This member does not have an active membership.',
+        })
+        return
+      }
+
+      targetMembership = found
+    } else {
+      targetMembership = selectCurrentMembership(memberships)
+    }
+
+    if (!targetMembership) {
+      res.status(400).json({
+        success: false,
+        message: 'This member does not have an active membership.',
+      })
+      return
+    }
+
+    // Validate that the resolved membership actually belongs to the requested member
+    if (targetMembership.member_id !== memberId) {
+      res.status(400).json({
+        success: false,
+        message: 'Membership does not belong to the requested member.',
+      })
+      return
+    }
+
+    const ms = targetMembership
+    const resolvedMembershipId = ms.id
+    const planName = Array.isArray(ms.membership_plans)
+      ? ms.membership_plans[0]?.name
+      : ms.membership_plans?.name || 'Membership'
+
+    // 4. Duplicate / In-flight Concurrency Protection
+    const sendKey = `${memberId}:${resolvedMembershipId}:${reminderStage}`
+
+    if (inFlightManualSends.has(sendKey)) {
+      res.status(409).json({
+        success: false,
+        message: 'A reminder request for this member and stage is currently being processed.',
+      })
+      return
+    }
+
+    // Check recent message history for duplicate within cooldown window (successful sends only)
+    const { data: recentHistory } = await supabase
+      .from('message_history')
+      .select('id, status, created_at')
+      .eq('member_id', memberId)
+      .eq('membership_id', resolvedMembershipId)
+      .eq('reminder_stage', reminderStage)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (recentHistory && ['sent', 'delivered', 'read'].includes(recentHistory.status)) {
+      const elapsedMs = Date.now() - new Date(recentHistory.created_at).getTime()
+      if (elapsedMs < RAPID_DUPLICATE_COOLDOWN_MS) {
+        res.status(409).json({
+          success: false,
+          message: 'A WhatsApp reminder for this stage was already sent recently. Please wait before sending again.',
+        })
+        return
+      }
+    }
+
+    // Acquire in-flight lock
+    inFlightManualSends.add(sendKey)
+
+    try {
+      // Find or create entry in reminders table to synchronize with reminder engine
+      const { data: existingReminder } = await supabase
+        .from('reminders')
+        .select('*')
+        .eq('member_id', memberId)
+        .eq('membership_id', resolvedMembershipId)
+        .eq('reminder_stage', reminderStage)
+        .maybeSingle()
+
+      let reminderId = existingReminder?.id
+      if (!reminderId) {
+        const { data: newRem, error: remInsertErr } = await supabase
+          .from('reminders')
+          .insert({
+            member_id: memberId,
+            membership_id: resolvedMembershipId,
+            reminder_stage: reminderStage,
+            channel: 'whatsapp',
+            scheduled_at: new Date().toISOString(),
+            status: 'scheduled',
+          })
+          .select('id')
+          .maybeSingle()
+
+        if (newRem) {
+          reminderId = newRem.id
+        } else if (remInsertErr?.code === '23505') {
+          res.status(409).json({
+            success: false,
+            message: 'A reminder request for this member and stage is currently being processed.',
+          })
+          return
+        }
+      } else if (existingReminder.status === 'failed') {
+        await supabase
+          .from('reminders')
+          .update({ status: 'scheduled', updated_at: new Date().toISOString() })
+          .eq('id', reminderId)
+      }
+
+      // 5. Compute pending dues
+      const { data: payments } = await supabase
+        .from('payments')
+        .select('amount')
+        .eq('membership_id', resolvedMembershipId)
+
+      const totalPaid = (payments ?? []).reduce((acc: number, p: any) => acc + Number(p.amount), 0)
+      const pendingAmount = Math.max(0, Math.round((Number(ms.actual_fee) - totalPaid) * 100) / 100)
+
+      // 6. Build TemplateContext
+      const context: TemplateContext = {
+        member_name: member.full_name,
+        membership_plan: planName,
+        expiry_date: ms.expiry_date ?? '—',
+        pending_amount: pendingAmount.toLocaleString('en-IN'),
+        payment_due_date: ms.payment_due_date ?? '—',
+        gym_name: 'Iron Paradise Gym',
+      }
+
+      const templateBody =
+        DEFAULT_TEMPLATES[reminderStage as ReminderStage]?.whatsapp ||
+        'Reminder from Iron Paradise Gym'
+      const renderedMessage = renderTemplate(templateBody, context)
+
+      // 7. Dispatch via NotificationService
+      const dispatchRes = await notificationService.dispatchReminder({
+        reminderId,
+        memberId,
+        membershipId: resolvedMembershipId,
+        reminderStage: reminderStage as ReminderStage,
+        channel: 'whatsapp',
+        recipientPhone: member.phone,
+        message: renderedMessage,
+        scheduledAt: new Date().toISOString(),
+        templateContext: context,
+        simulateFailure: Boolean(req.body?.simulateFailure),
+        failureReason: typeof req.body?.failureReason === 'string' ? req.body.failureReason : undefined,
+      })
+
+      if (dispatchRes.status === 'failed') {
+        res.status(400).json({
+          success: false,
+          message: dispatchRes.providerResult.failureReason || 'Failed to dispatch WhatsApp reminder.',
+          data: dispatchRes.providerResult,
+        })
+        return
+      }
+
+      res.json({
+        success: true,
+        message: 'WhatsApp reminder sent successfully.',
+        data: dispatchRes.providerResult,
+      })
+    } finally {
+      inFlightManualSends.delete(sendKey)
+    }
+  } catch (err) {
+    console.error('[remindersController] manualSendReminder error', err)
+    res.status(500).json({ success: false, message: 'Failed to send manual reminder.' })
   }
 }
 
@@ -704,8 +1041,16 @@ export async function getMemberReminders(req: Request, res: Response): Promise<v
     res.json({
       success: true,
       data: {
-        reminders: (remindersRes.data ?? []).map(r => ({ ...r, is_simulated: true })),
-        history: (historyRes.data ?? []).map(h => ({ ...h, is_simulated: true })),
+        reminders: (remindersRes.data ?? []).map(r => ({
+          ...r,
+          is_simulated: env.messagingProvider === 'mock',
+        })),
+        history: (historyRes.data ?? []).map(h => ({
+          ...h,
+          is_simulated:
+            h.provider_message_id?.startsWith('mock-') ??
+            (env.messagingProvider === 'mock'),
+        })),
       },
     })
   } catch (err) {

@@ -139,3 +139,32 @@ export function selectCurrentMembership<T extends {
     return best
   })
 }
+
+/**
+ * Determines if a membership is eligible for Pending Dues calculation.
+ *
+ * Approved Business Rule:
+ * - Includes Active memberships
+ * - Includes Expired memberships
+ * - Strictly EXCLUDES Cancelled memberships (status === 'cancelled')
+ * - Strictly EXCLUDES Future memberships (start_date > today)
+ */
+export function isMembershipEligibleForPendingDues(
+  m: { status: string; start_date?: string; expiry_date?: string },
+  today: string = isoDate(),
+): boolean {
+  if (m.status === 'cancelled') return false
+  if (m.start_date && isMembershipFuture({ status: m.status, start_date: m.start_date }, today)) {
+    return false
+  }
+  return true
+}
+
+/**
+ * Computes the pending amount for a membership given actual fee and total paid.
+ * Enforces minimum 0, floating-point tolerance (> 0.005), and 2-decimal rounding.
+ */
+export function computePendingAmount(actualFee: number, totalPaid: number): number {
+  const pending = Math.max(0, Number(actualFee) - Number(totalPaid))
+  return pending > 0.005 ? Math.round(pending * 100) / 100 : 0
+}

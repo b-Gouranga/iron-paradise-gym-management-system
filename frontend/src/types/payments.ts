@@ -63,6 +63,7 @@ export interface PaymentSummaryStats {
   totalRevenue: number
   totalRecordedCount: number
   totalPendingEstimate: number
+  totalPendingCount?: number
 }
 
 export interface PaymentListResponse {

@@ -9,6 +9,7 @@ import {
   IndianRupee,
   Mail,
   MapPin,
+  MessageCircle,
   MessageSquare,
   Phone,
   Plus,
@@ -26,6 +27,7 @@ import { AddMembershipModal } from '../components/memberships/AddMembershipModal
 import { RenewMembershipModal } from '../components/memberships/RenewMembershipModal'
 import { RecordPaymentModal } from '../components/payments/RecordPaymentModal'
 import { MemberRemindersCard } from '../components/reminders/MemberRemindersCard'
+import { SendManualReminderModal } from '../components/reminders/SendManualReminderModal'
 import { useAuth } from '../hooks/useAuth'
 import { useMemberDetail } from '../hooks/useMemberDetail'
 import { useMemberMemberships } from '../hooks/useMemberMemberships'
@@ -112,6 +114,7 @@ export function MemberDetailPage() {
   const [renewTarget, setRenewTarget] = useState<Membership | null>(null)
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false)
   const [recordPaymentMembershipId, setRecordPaymentMembershipId] = useState<string | undefined>(undefined)
+  const [isSendReminderOpen, setIsSendReminderOpen] = useState(false)
 
   function handleMembershipSuccess() {
     refresh()
@@ -175,7 +178,7 @@ export function MemberDetailPage() {
               .join('')}
           </div>
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="font-['Oswald'] text-2xl font-bold uppercase tracking-wide text-white">
                 {member.full_name}
               </h1>
@@ -185,6 +188,16 @@ export function MemberDetailPage() {
               <StatusBadge
                 status={member.status === 'active' ? 'Active' : 'Inactive'}
               />
+              <span
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                  member.whatsapp_opt_in
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                    : 'border-zinc-700 bg-zinc-800/80 text-zinc-400'
+                }`}
+              >
+                <MessageCircle size={11} />
+                {member.whatsapp_opt_in ? 'WhatsApp Opted In' : 'WhatsApp Not Opted In'}
+              </span>
             </div>
             <p className="text-xs text-zinc-500">
               Joined on {formatDate(member.joining_date)} · Member since{' '}
@@ -194,7 +207,17 @@ export function MemberDetailPage() {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsSendReminderOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/20 hover:text-white"
+            title="Send manual WhatsApp reminder"
+          >
+            <MessageCircle size={15} />
+            Send WhatsApp
+          </button>
+
           <Button
             onClick={() => setIsEditModalOpen(true)}
             className="flex items-center gap-1.5"
@@ -718,6 +741,18 @@ export function MemberDetailPage() {
           }
         })}
         preselectedMembershipId={recordPaymentMembershipId}
+      />
+
+      {/* Send Manual WhatsApp Reminder Modal */}
+      <SendManualReminderModal
+        isOpen={isSendReminderOpen}
+        onClose={() => setIsSendReminderOpen(false)}
+        onSuccess={refresh}
+        memberId={member.id}
+        memberName={member.full_name}
+        memberCode={member.member_code}
+        memberPhone={member.phone}
+        whatsappOptIn={member.whatsapp_opt_in}
       />
     </>
   )

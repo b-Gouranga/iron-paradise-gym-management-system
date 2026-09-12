@@ -24,6 +24,7 @@ export interface MemberListItem {
   status: MemberStatus
   joining_date: string
   created_at: string
+  whatsapp_opt_in?: boolean
   current_membership: MembershipSummary | null
 }
 
@@ -50,6 +51,7 @@ export interface MemberDetail {
   status: MemberStatus
   created_at: string
   updated_at: string
+  whatsapp_opt_in?: boolean
   current_membership: CurrentMembershipDetail | null
 }
 
@@ -69,6 +71,7 @@ export interface CreateMemberPayload {
   date_of_birth?: string | null
   joining_date: string
   notes?: string | null
+  whatsapp_opt_in?: boolean
 }
 
 export interface UpdateMemberPayload {
@@ -80,4 +83,5 @@ export interface UpdateMemberPayload {
   joining_date?: string
   notes?: string | null
   status?: MemberStatus
+  whatsapp_opt_in?: boolean
 }

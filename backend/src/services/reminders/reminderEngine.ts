@@ -167,7 +167,7 @@ export async function generateReminders(): Promise<ReminderGenerationResult> {
     supabase
       .from('memberships')
       .select(
-        'id, member_id, start_date, actual_fee, payment_due_date, expiry_date, status, membership_plans(name), members(id, full_name, member_code, phone, status)',
+        'id, member_id, start_date, actual_fee, payment_due_date, expiry_date, status, membership_plans(name), members(id, full_name, member_code, phone, notes, status)',
       ),
     supabase.from('payments').select('membership_id, amount'),
   ])
@@ -200,6 +200,8 @@ export async function generateReminders(): Promise<ReminderGenerationResult> {
       full_name: string
       member_code: string
       phone: string
+      notes?: string | null
+      whatsapp_opt_in?: boolean
       status: string
     } | null
   }
@@ -284,6 +286,16 @@ export async function generateReminders(): Promise<ReminderGenerationResult> {
       // Channel preference
       const channel = setting.channel || 'whatsapp'
       const template = templateLookup.get(`${stage}:${channel}`)
+
+      // If channel is whatsapp, verify member has consented to opt-in
+      const isOptedIn =
+        (member as any).whatsapp_opt_in === true ||
+        (member.notes && member.notes.includes('[opt_in:whatsapp]'))
+
+      if (channel === 'whatsapp' && !isOptedIn) {
+        skippedCount++
+        continue
+      }
 
       remindersToInsert.push({
         member_id: member.id,
@@ -456,6 +468,7 @@ export async function processReminders(options?: {
       recipientPhone: member.phone,
       message: renderedMessage,
       scheduledAt: rem.scheduled_at,
+      templateContext: context,
       simulateFailure: options?.simulateFailure,
       failureReason: options?.failureReason,
     })

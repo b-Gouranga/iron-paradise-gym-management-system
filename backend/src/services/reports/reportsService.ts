@@ -5,6 +5,7 @@ import {
   countUniqueActiveMembers,
   getEffectiveMembershipStatus,
   isMembershipActive,
+  isMembershipEligibleForPendingDues,
   isMembershipExpired,
   isMembershipExpiringSoon,
   isMembershipFuture,
@@ -188,16 +189,18 @@ export async function getReportsOverview(
   const totalRevenue = filteredPayments.reduce((acc, p) => acc + Number(p.amount), 0)
   const totalTransactions = filteredPayments.length
 
-  // 2. Pending dues across memberships
+  // 2. Pending dues across memberships (Active + Expired, excluding Cancelled and Future)
   let pendingDues = 0
   for (const ms of ctx.memberships) {
     if (params.plan_id && params.plan_id !== 'all' && ms.plan_id !== params.plan_id) {
       continue
     }
+    if (!isMembershipEligibleForPendingDues(ms, today)) {
+      continue
+    }
     const paid = ctx.paymentsByMembership.get(ms.id) ?? 0
     const pending = Math.max(0, Number(ms.actual_fee) - paid)
-    // Pending dues count if membership is active or has pending balance
-    if (pending > 0.005 && ms.status !== 'cancelled') {
+    if (pending > 0.005) {
       pendingDues += pending
     }
   }
@@ -398,8 +401,10 @@ export async function getPaymentReport(
   params: ReportFilterParams = {},
 ): Promise<PaymentReportData> {
   const ctx = await loadReportContext()
+  const today = isoDate()
 
   let memberships = ctx.memberships.filter((m) => {
+    if (!isMembershipEligibleForPendingDues(m, today)) return false
     if (params.date_from && m.start_date < params.date_from) return false
     if (params.date_to && m.start_date > params.date_to) return false
     if (params.plan_id && params.plan_id !== 'all' && m.plan_id !== params.plan_id) return false

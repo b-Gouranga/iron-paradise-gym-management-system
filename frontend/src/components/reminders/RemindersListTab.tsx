@@ -18,6 +18,7 @@ import { Card } from '../Card'
 import { useAuth } from '../../hooks/useAuth'
 import {
   cancelReminder,
+  retryReminder,
   sendReminder,
   triggerGenerate,
   triggerProcess,
@@ -118,10 +119,24 @@ export function RemindersListTab({
   }
 
   async function handleSendItem(id: string) {
-    if (!token || !isOwner) return
+    if (!token) return
     setItemActionId(id)
     try {
       const res = await sendReminder(token, id)
+      showMessage(res.message)
+      onRefresh()
+    } catch (err) {
+      showError(err)
+    } finally {
+      setItemActionId(null)
+    }
+  }
+
+  async function handleRetryItem(id: string) {
+    if (!token) return
+    setItemActionId(id)
+    try {
+      const res = await retryReminder(token, id)
       showMessage(res.message)
       onRefresh()
     } catch (err) {
@@ -300,8 +315,10 @@ export function RemindersListTab({
           >
             <option value="all" className="bg-[#1C1C1F]">All Statuses</option>
             <option value="scheduled" className="bg-[#1C1C1F]">Scheduled</option>
-            <option value="sent" className="bg-[#1C1C1F]">Sent (Simulated)</option>
-            <option value="failed" className="bg-[#1C1C1F]">Failed (Simulated)</option>
+            <option value="sent" className="bg-[#1C1C1F]">Sent</option>
+            <option value="delivered" className="bg-[#1C1C1F]">Delivered</option>
+            <option value="read" className="bg-[#1C1C1F]">Read</option>
+            <option value="failed" className="bg-[#1C1C1F]">Failed</option>
             <option value="cancelled" className="bg-[#1C1C1F]">Cancelled</option>
           </select>
 
@@ -313,7 +330,6 @@ export function RemindersListTab({
           >
             <option value="all" className="bg-[#1C1C1F]">All Channels</option>
             <option value="whatsapp" className="bg-[#1C1C1F]">WhatsApp</option>
-            <option value="sms" className="bg-[#1C1C1F]">SMS</option>
           </select>
         </div>
       </Card>
@@ -329,19 +345,19 @@ export function RemindersListTab({
                 <th className="px-4 py-3">Channel</th>
                 <th className="px-4 py-3">Scheduled At</th>
                 <th className="px-4 py-3">Status</th>
-                {isOwner && <th className="px-4 py-3 text-right">Actions</th>}
+                <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[.05]">
               {loading ? (
                 <tr>
-                  <td colSpan={isOwner ? 6 : 5} className="py-12 text-center text-zinc-500">
+                  <td colSpan={6} className="py-12 text-center text-zinc-500">
                     Loading reminders…
                   </td>
                 </tr>
               ) : reminders.length === 0 ? (
                 <tr>
-                  <td colSpan={isOwner ? 6 : 5} className="py-12 text-center text-zinc-500">
+                  <td colSpan={6} className="py-12 text-center text-zinc-500">
                     No reminders matching criteria. Click &ldquo;Scan & Generate&rdquo; above to run candidate detection.
                   </td>
                 </tr>
@@ -387,22 +403,36 @@ export function RemindersListTab({
                           className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-semibold ${
                             r.status === 'scheduled'
                               ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
-                              : r.status === 'sent' || r.status === 'delivered'
+                              : r.status === 'sent'
+                              ? 'border-blue-500/20 bg-blue-500/10 text-blue-400'
+                              : r.status === 'delivered'
                               ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+                              : r.status === 'read'
+                              ? 'border-teal-500/20 bg-teal-500/10 text-teal-300'
                               : r.status === 'failed'
                               ? 'border-red-800/40 bg-red-950/30 text-brand'
                               : 'border-zinc-700 bg-zinc-800 text-zinc-400'
                           }`}
                         >
-                          {r.status === 'sent' || r.status === 'delivered' ? (
+                          {r.status === 'sent' ? (
                             <>
                               <CheckCircle2 size={10} />
-                              Sent (Simulated)
+                              {r.is_simulated ? 'Sent (Simulated)' : 'Sent'}
+                            </>
+                          ) : r.status === 'delivered' ? (
+                            <>
+                              <CheckCircle2 size={10} />
+                              Delivered
+                            </>
+                          ) : r.status === 'read' ? (
+                            <>
+                              <CheckCircle2 size={10} />
+                              Read
                             </>
                           ) : r.status === 'failed' ? (
                             <>
                               <XCircle size={10} />
-                              Failed (Simulated)
+                              {r.is_simulated ? 'Failed (Simulated)' : 'Failed'}
                             </>
                           ) : r.status === 'scheduled' ? (
                             <>
@@ -415,19 +445,19 @@ export function RemindersListTab({
                         </span>
                       </td>
 
-                      {isOwner && (
-                        <td className="px-4 py-3 text-right">
-                          {r.status === 'scheduled' ? (
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                type="button"
-                                disabled={isActioning}
-                                onClick={() => handleSendItem(r.id)}
-                                className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-300 transition hover:bg-emerald-500/20 hover:text-white disabled:opacity-50"
-                                title="Send now via simulated mock provider"
-                              >
-                                {isActioning ? 'Sending…' : 'Send'}
-                              </button>
+                      <td className="px-4 py-3 text-right">
+                        {r.status === 'scheduled' ? (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              disabled={isActioning}
+                              onClick={() => handleSendItem(r.id)}
+                              className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-300 transition hover:bg-emerald-500/20 hover:text-white disabled:opacity-50"
+                              title="Send reminder"
+                            >
+                              {isActioning ? 'Sending…' : 'Send'}
+                            </button>
+                            {isOwner && (
                               <button
                                 type="button"
                                 disabled={isActioning}
@@ -437,12 +467,24 @@ export function RemindersListTab({
                               >
                                 Cancel
                               </button>
-                            </div>
-                          ) : (
-                            <span className="text-[11px] text-zinc-600">—</span>
-                          )}
-                        </td>
-                      )}
+                            )}
+                          </div>
+                        ) : r.status === 'failed' ? (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              disabled={isActioning}
+                              onClick={() => handleRetryItem(r.id)}
+                              className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-300 transition hover:bg-amber-500/20 hover:text-white disabled:opacity-50"
+                              title="Retry failed reminder"
+                            >
+                              {isActioning ? 'Retrying…' : 'Retry'}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-zinc-600">—</span>
+                        )}
+                      </td>
                     </tr>
                   )
                 })

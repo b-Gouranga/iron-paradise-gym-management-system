@@ -22,6 +22,7 @@ import type {
   PaymentListFilters,
   PaymentMethod,
   PaymentPurpose,
+  PaymentSummaryStats,
   PaymentTransaction,
 } from '../types/payments'
 
@@ -108,10 +109,11 @@ export function PaymentsPage() {
   const [limit] = useState(15)
   const [total, setTotal] = useState(0)
   const [totalPages, setTotalPages] = useState(1)
-  const [summary, setSummary] = useState({
+  const [summary, setSummary] = useState<PaymentSummaryStats>({
     totalRevenue: 0,
     totalRecordedCount: 0,
     totalPendingEstimate: 0,
+    totalPendingCount: 0,
   })
 
   // Debounced search
@@ -160,6 +162,7 @@ export function PaymentsPage() {
               totalRevenue: 0,
               totalRecordedCount: 0,
               totalPendingEstimate: 0,
+              totalPendingCount: 0,
             },
           )
           setLoading(false)
@@ -259,7 +262,10 @@ export function PaymentsPage() {
             </div>
           </div>
           <p className="mt-2 text-xs text-zinc-400">
-            Outstanding fees on active memberships
+            Outstanding fees across active & expired memberships
+            {summary.totalPendingCount != null && summary.totalPendingCount > 0
+              ? ` (${summary.totalPendingCount} memberships)`
+              : ''}
           </p>
         </Card>
       </div>

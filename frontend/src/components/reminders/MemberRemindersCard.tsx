@@ -5,12 +5,15 @@ import {
   Clock,
   History,
   MessageCircle,
+  RotateCcw,
   Smartphone,
   XCircle,
 } from 'lucide-react'
 import { useState } from 'react'
 import { Card } from '../Card'
+import { useAuth } from '../../hooks/useAuth'
 import { useMemberReminders } from '../../hooks/useMemberReminders'
+import { retryReminder } from '../../services/remindersService'
 import type { ReminderStage } from '../../types/reminders'
 import { REMINDER_STAGE_LABELS } from '../../types/reminders'
 
@@ -20,8 +23,12 @@ interface MemberRemindersCardProps {
 }
 
 export function MemberRemindersCard({ memberId, memberName }: MemberRemindersCardProps) {
-  const { reminders, history, loading, error } = useMemberReminders(memberId)
+  const { session } = useAuth()
+  const token = session?.access_token
+  const { reminders, history, loading, error, refresh } = useMemberReminders(memberId)
   const [activeTab, setActiveTab] = useState<'reminders' | 'history'>('reminders')
+  const [retryingId, setRetryingId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   function formatDate(isoStr: string | null) {
     if (!isoStr) return '—'
@@ -34,6 +41,20 @@ export function MemberRemindersCard({ memberId, memberName }: MemberRemindersCar
       })
     } catch {
       return isoStr
+    }
+  }
+
+  async function handleRetry(reminderId: string) {
+    if (!token) return
+    setRetryingId(reminderId)
+    setActionError(null)
+    try {
+      await retryReminder(token, reminderId)
+      refresh()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to retry reminder.')
+    } finally {
+      setRetryingId(null)
     }
   }
 
@@ -73,9 +94,9 @@ export function MemberRemindersCard({ memberId, memberName }: MemberRemindersCar
         </div>
       </div>
 
-      {error && (
+      {(error || actionError) && (
         <div className="mt-3 rounded-lg border border-red-800/40 bg-red-950/30 p-2.5 text-xs text-red-300">
-          {error}
+          {error || actionError}
         </div>
       )}
 
@@ -115,20 +136,51 @@ export function MemberRemindersCard({ memberId, memberName }: MemberRemindersCar
 
                     <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-400">
                       <span>Scheduled: {formatDate(r.scheduled_at)}</span>
-                      <span
-                        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                          r.status === 'scheduled'
-                            ? 'bg-amber-500/10 text-amber-300'
-                            : r.status === 'sent' || r.status === 'delivered'
-                            ? 'bg-emerald-500/10 text-emerald-400'
-                            : 'bg-red-950/30 text-brand'
-                        }`}
-                      >
-                        {r.status === 'scheduled' && <Clock size={9} />}
-                        {r.status === 'sent' && <CheckCircle2 size={9} />}
-                        {r.status === 'failed' && <XCircle size={9} />}
-                        {r.status === 'sent' ? 'Sent (Simulated)' : r.status}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                            r.status === 'scheduled'
+                              ? 'bg-amber-500/10 text-amber-300'
+                              : r.status === 'sent'
+                              ? 'bg-blue-500/10 text-blue-400'
+                              : r.status === 'delivered'
+                              ? 'bg-emerald-500/10 text-emerald-400'
+                              : r.status === 'read'
+                              ? 'bg-teal-500/10 text-teal-300'
+                              : r.status === 'failed'
+                              ? 'bg-red-950/30 text-brand'
+                              : 'bg-zinc-800 text-zinc-400'
+                          }`}
+                        >
+                          {r.status === 'scheduled' && <Clock size={9} />}
+                          {r.status === 'sent' && <CheckCircle2 size={9} />}
+                          {r.status === 'delivered' && <CheckCircle2 size={9} />}
+                          {r.status === 'read' && <CheckCircle2 size={9} />}
+                          {r.status === 'failed' && <XCircle size={9} />}
+                          {r.status === 'sent'
+                            ? r.is_simulated ? 'Sent (Simulated)' : 'Sent'
+                            : r.status === 'delivered'
+                            ? 'Delivered'
+                            : r.status === 'read'
+                            ? 'Read'
+                            : r.status === 'failed'
+                            ? r.is_simulated ? 'Failed (Simulated)' : 'Failed'
+                            : r.status === 'scheduled'
+                            ? 'Scheduled'
+                            : 'Cancelled'}
+                        </span>
+                        {r.status === 'failed' && (
+                          <button
+                            type="button"
+                            disabled={retryingId === r.id}
+                            onClick={() => handleRetry(r.id)}
+                            className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-400 hover:text-amber-300 disabled:opacity-50"
+                          >
+                            <RotateCcw size={9} />
+                            {retryingId === r.id ? 'Retrying…' : 'Retry'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )
@@ -166,11 +218,25 @@ export function MemberRemindersCard({ memberId, memberName }: MemberRemindersCar
                       className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold ${
                         isFailed
                           ? 'border-red-800/40 bg-red-950/30 text-brand'
-                          : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+                          : h.status === 'sent'
+                          ? 'border-blue-500/20 bg-blue-500/10 text-blue-400'
+                          : h.status === 'delivered'
+                          ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+                          : h.status === 'read'
+                          ? 'border-teal-500/20 bg-teal-500/10 text-teal-300'
+                          : 'border-zinc-700 bg-zinc-800 text-zinc-400'
                       }`}
                     >
                       {isFailed ? <XCircle size={9} /> : <CheckCircle2 size={9} />}
-                      {isFailed ? 'Failed (Simulated)' : 'Sent (Simulated)'}
+                      {isFailed
+                        ? h.is_simulated ? 'Failed (Simulated)' : 'Failed'
+                        : h.status === 'sent'
+                        ? h.is_simulated ? 'Sent (Simulated)' : 'Sent'
+                        : h.status === 'delivered'
+                        ? 'Delivered'
+                        : h.status === 'read'
+                        ? 'Read'
+                        : h.status}
                     </span>
                   </div>
 

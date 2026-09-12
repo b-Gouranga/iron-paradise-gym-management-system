@@ -177,7 +177,14 @@ export function MembersPage() {
                     {m.full_name}
                   </Link>
                 </td>
-                <td className="table-cell">{m.phone}</td>
+                <td className="table-cell">
+                  <div className="flex items-center gap-1.5">
+                    <span>{m.phone}</span>
+                    {m.whatsapp_opt_in && (
+                      <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" title="WhatsApp Opted In" />
+                    )}
+                  </div>
+                </td>
                 <td className="table-cell text-zinc-400">{m.email || '—'}</td>
                 <td className="table-cell">
                   <StatusBadge status={m.status === 'active' ? 'Active' : 'Inactive'} />

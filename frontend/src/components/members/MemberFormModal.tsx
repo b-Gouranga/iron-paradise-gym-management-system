@@ -34,6 +34,7 @@ export function MemberFormModal({
   const [joiningDate, setJoiningDate] = useState(getTodayISO())
   const [notes, setNotes] = useState('')
   const [status, setStatus] = useState<MemberStatus>('active')
+  const [whatsappOptIn, setWhatsappOptIn] = useState(false)
 
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -49,6 +50,7 @@ export function MemberFormModal({
       setJoiningDate(member.joining_date ?? getTodayISO())
       setNotes(member.notes ?? '')
       setStatus(member.status ?? 'active')
+      setWhatsappOptIn(Boolean(member.whatsapp_opt_in))
     } else {
       setFullName('')
       setPhone('')
@@ -58,6 +60,7 @@ export function MemberFormModal({
       setJoiningDate(getTodayISO())
       setNotes('')
       setStatus('active')
+      setWhatsappOptIn(false)
     }
     setError(null)
     setSubmitting(false)
@@ -104,6 +107,7 @@ export function MemberFormModal({
           joining_date: trimmedJoiningDate,
           notes: notes.trim() || null,
           status,
+          whatsapp_opt_in: whatsappOptIn,
         })
       } else {
         await createMember(token, {
@@ -114,6 +118,7 @@ export function MemberFormModal({
           date_of_birth: dateOfBirth.trim() || null,
           joining_date: trimmedJoiningDate,
           notes: notes.trim() || null,
+          whatsapp_opt_in: whatsappOptIn,
         })
       }
       onSuccess()
@@ -288,6 +293,26 @@ export function MemberFormModal({
               placeholder="Medical notes, fitness goals, or references..."
               className="w-full rounded-lg border border-white/10 bg-white/[.04] px-3.5 py-2 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-brand/70"
             />
+          </div>
+
+          {/* WhatsApp Opt-in */}
+          <div className="rounded-lg border border-white/10 bg-white/[.02] p-3.5 transition hover:bg-white/[.04]">
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={whatsappOptIn}
+                onChange={e => setWhatsappOptIn(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-white/20 bg-white/5 text-brand focus:ring-brand focus:ring-offset-0"
+              />
+              <div>
+                <span className="block text-sm font-semibold text-white">
+                  WhatsApp Reminders Opt-In
+                </span>
+                <span className="block text-xs text-zinc-400 mt-0.5">
+                  Member consents to receiving automated expiry, payment, and renewal notifications via WhatsApp.
+                </span>
+              </div>
+            </label>
           </div>
 
           {/* Footer Actions */}

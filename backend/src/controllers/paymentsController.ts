@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
 import { logAuditEvent } from '../services/audit/auditService.js'
+import { isMembershipEligibleForPendingDues } from '../utils/membershipStatus.js'
 import type {
   MembershipPaymentSummary,
   MemberPaymentSummary,
@@ -97,9 +98,9 @@ export async function listPayments(req: Request, res: Response): Promise<void> {
 
   try {
     // 1. Calculate overall summary metrics
-    const [allPaymentsRes, activeMembershipsRes] = await Promise.all([
+    const [allPaymentsRes, allMembershipsRes] = await Promise.all([
       supabase.from('payments').select('membership_id, amount'),
-      supabase.from('memberships').select('id, actual_fee').eq('status', 'active'),
+      supabase.from('memberships').select('id, actual_fee, status, start_date, expiry_date'),
     ])
 
     const allPayments = (allPaymentsRes.data ?? []) as unknown as { membership_id: string; amount: number }[]
@@ -114,17 +115,31 @@ export async function listPayments(req: Request, res: Response): Promise<void> {
       )
     }
 
+    const today = isoDate()
     let totalPendingEstimate = 0
-    for (const m of (activeMembershipsRes.data ?? []) as unknown as { id: string; actual_fee: number }[]) {
+    let totalPendingCount = 0
+    for (const m of (allMembershipsRes.data ?? []) as unknown as {
+      id: string
+      actual_fee: number
+      status: string
+      start_date: string
+      expiry_date: string
+    }[]) {
+      if (!isMembershipEligibleForPendingDues(m, today)) continue
+
       const paid = paidByMembership.get(m.id) ?? 0
       const pending = Math.max(0, Number(m.actual_fee) - paid)
-      totalPendingEstimate += pending
+      if (pending > 0.005) {
+        totalPendingEstimate += pending
+        totalPendingCount++
+      }
     }
 
     const summary: PaymentSummaryStats = {
       totalRevenue: Math.round(totalRevenue * 100) / 100,
       totalRecordedCount,
       totalPendingEstimate: Math.round(totalPendingEstimate * 100) / 100,
+      totalPendingCount,
     }
 
     // 2. Member search filter

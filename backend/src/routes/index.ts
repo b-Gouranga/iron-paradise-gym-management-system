@@ -12,6 +12,7 @@ import { trainersRouter } from './trainersRouter.js'
 import { settingsRouter } from './settingsRouter.js'
 import { auditLogsRouter } from './auditLogsRouter.js'
 import { renewalsRouter } from './renewalsRouter.js'
+import { webhooksRouter } from './webhooksRouter.js'
 
 export const apiRouter = Router()
 
@@ -53,3 +54,6 @@ apiRouter.use('/audit-logs', auditLogsRouter)
 
 // Renewals workbench routes — protected by requireAuth (enforced in renewalsRouter)
 apiRouter.use('/renewals', renewalsRouter)
+
+// Webhook routes — public endpoints authenticated via Meta challenge and HMAC signature
+apiRouter.use('/webhooks', webhooksRouter)

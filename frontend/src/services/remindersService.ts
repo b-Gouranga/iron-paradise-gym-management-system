@@ -197,6 +197,50 @@ export async function cancelReminder(
   return handleResponse<ReminderItem>(res, 'Failed to cancel reminder.')
 }
 
+export async function retryReminder(
+  accessToken: string,
+  reminderId: string,
+): Promise<{ message: string; result?: unknown }> {
+  const res = await fetch(`${API_BASE}/api/reminders/${reminderId}/retry`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return handleResponse<{ message: string; result?: unknown }>(res, 'Failed to retry reminder.')
+}
+
+export interface ManualSendReminderPayload {
+  memberId?: string
+  member_id?: string
+  reminderStage?: ReminderStage | string
+  stage?: ReminderStage | string
+  membershipId?: string
+  membership_id?: string
+  channel?: 'whatsapp' | 'sms'
+}
+
+export async function manualSendReminder(
+  accessToken: string,
+  payload: ManualSendReminderPayload,
+): Promise<{ message: string; result?: unknown }> {
+  const body = {
+    memberId: payload.memberId || payload.member_id,
+    reminderStage: payload.reminderStage || payload.stage,
+    channel: payload.channel || 'whatsapp',
+    ...(payload.membershipId || payload.membership_id
+      ? { membershipId: payload.membershipId || payload.membership_id }
+      : {}),
+  }
+  const res = await fetch(`${API_BASE}/api/reminders/manual`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(body),
+  })
+  return handleResponse<{ message: string; result?: unknown }>(res, 'Failed to send manual reminder.')
+}
+
 export async function fetchMemberReminders(
   accessToken: string,
   memberId: string,
@@ -206,3 +250,4 @@ export async function fetchMemberReminders(
   })
   return handleResponse<MemberRemindersResponse>(res, 'Failed to load member reminders.')
 }
+

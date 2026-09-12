@@ -15,6 +15,7 @@ export type ReminderStatus =
   | 'scheduled'
   | 'sent'
   | 'delivered'
+  | 'read'
   | 'failed'
   | 'cancelled'
 

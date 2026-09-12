@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
 import {
   countUniqueActiveMembers,
   isMembershipActive,
+  isMembershipEligibleForPendingDues,
   isMembershipExpired,
   isMembershipExpiringSoon,
 } from '../utils/membershipStatus.js'
@@ -218,6 +219,8 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
     }> = []
 
     for (const m of sortedMemberships) {
+      if (!isMembershipEligibleForPendingDues(m, today)) continue
+
       const paid = paidByMembership.get(m.id) ?? 0
       const pending = Number(m.actual_fee) - paid
       if (pending > 0.005) {  // tolerance for floating-point noise
@@ -241,6 +244,7 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
         }
       }
     }
+    pendingPaymentsAmount = Math.round(pendingPaymentsAmount * 100) / 100
 
     // ── Upcoming renewals list ────────────────────────────────────────────────
     //

@@ -13,4 +13,12 @@ export const env = {
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
   supabaseUrl: requireEnv('SUPABASE_URL'),
   supabaseServiceRoleKey: requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
+  messagingProvider: (process.env.MESSAGING_PROVIDER || 'mock').toLowerCase() as 'mock' | 'meta',
+  metaWhatsAppEnabled: process.env.META_WHATSAPP_ENABLED === 'true',
+  metaWhatsAppAccessToken: process.env.META_WHATSAPP_ACCESS_TOKEN || '',
+  metaWhatsAppPhoneNumberId: process.env.META_WHATSAPP_PHONE_NUMBER_ID || '',
+  metaWhatsAppBusinessAccountId: process.env.META_WHATSAPP_BUSINESS_ACCOUNT_ID || '',
+  metaWhatsAppApiVersion: process.env.META_WHATSAPP_API_VERSION || 'v25.0',
+  metaWhatsAppVerifyToken: process.env.META_WHATSAPP_VERIFY_TOKEN || 'iron_paradise_verify_token_default',
+  metaWhatsAppAppSecret: process.env.META_WHATSAPP_APP_SECRET || 'iron_paradise_app_secret_default',
 }

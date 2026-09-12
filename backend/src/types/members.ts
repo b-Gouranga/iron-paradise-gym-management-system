@@ -24,6 +24,7 @@ export interface MemberRow {
   joining_date: string
   notes: string | null
   status: MemberStatus
+  whatsapp_opt_in?: boolean
   created_at: string
   updated_at: string
 }
@@ -36,6 +37,7 @@ export interface CreateMemberInput {
   date_of_birth?: string | null
   joining_date: string
   notes?: string | null
+  whatsapp_opt_in?: boolean
 }
 
 export interface UpdateMemberInput {
@@ -47,4 +49,5 @@ export interface UpdateMemberInput {
   joining_date?: string
   notes?: string | null
   status?: MemberStatus
+  whatsapp_opt_in?: boolean
 }

@@ -252,7 +252,7 @@ export async function listMembers(req: Request, res: Response): Promise<void> {
     let query = supabase
       .from('members')
       .select(
-        'id, member_code, full_name, phone, email, status, joining_date, created_at',
+        'id, member_code, full_name, phone, email, status, joining_date, created_at, notes',
         { count: 'exact' },
       )
 
@@ -284,6 +284,9 @@ export async function listMembers(req: Request, res: Response): Promise<void> {
 
     const enriched = (members ?? []).map(m => ({
       ...m,
+      whatsapp_opt_in: Boolean(
+        (m as any).whatsapp_opt_in ?? ((m as any).notes && (m as any).notes.includes('[opt_in:whatsapp]')),
+      ),
       current_membership: membershipMap.get(m.id as string) ?? null,
     }))
 
@@ -352,6 +355,9 @@ export async function getMember(req: Request, res: Response): Promise<void> {
       success: true,
       data: {
         ...member,
+        whatsapp_opt_in: Boolean(
+          (member as any).whatsapp_opt_in ?? (member.notes && member.notes.includes('[opt_in:whatsapp]')),
+        ),
         current_membership: latest
           ? {
               id: latest.id,
@@ -411,26 +417,57 @@ export async function createMember(req: Request, res: Response): Promise<void> {
     return
   }
 
+  const whatsappOptIn = body.whatsapp_opt_in === true || body.whatsapp_opt_in === 'true'
+
   try {
     let newMember = null
     for (let attempt = 0; attempt < 3; attempt++) {
       const member_code = await generateNextMemberCode(supabase)
 
-      const { data, error } = await supabase
+      let initialNotes = body.notes ? String(body.notes).trim() : null
+      if (whatsappOptIn) {
+        if (!initialNotes) {
+          initialNotes = '[opt_in:whatsapp]'
+        } else if (!initialNotes.includes('[opt_in:whatsapp]')) {
+          initialNotes = `${initialNotes} [opt_in:whatsapp]`
+        }
+      }
+
+      const insertPayload: Record<string, unknown> = {
+        member_code,
+        full_name: fullName,
+        phone,
+        email,
+        address: body.address ? String(body.address).trim() || null : null,
+        date_of_birth: dob,
+        joining_date: joiningDate,
+        notes: initialNotes,
+        status: 'active',
+        whatsapp_opt_in: whatsappOptIn,
+      }
+
+      let { data, error } = await supabase
         .from('members')
-        .insert({
-          member_code,
-          full_name: fullName,
-          phone,
-          email,
-          address: body.address ? String(body.address).trim() || null : null,
-          date_of_birth: dob,
-          joining_date: joiningDate,
-          notes: body.notes ? String(body.notes).trim() || null : null,
-          status: 'active',
-        })
+        .insert(insertPayload)
         .select()
         .single()
+
+      if (
+        error &&
+        (error.message?.includes('whatsapp_opt_in') ||
+          (error as { code?: string }).code === '42703' ||
+          (error as { code?: string }).code === 'PGRST204')
+      ) {
+        // Fallback if migration 006 has not been applied yet
+        delete insertPayload.whatsapp_opt_in
+        const retryRes = await supabase
+          .from('members')
+          .insert(insertPayload)
+          .select()
+          .single()
+        data = retryRes.data
+        error = retryRes.error
+      }
 
       if (error) {
         if ((error as { code?: string }).code === '23505' && attempt < 2) {
@@ -461,11 +498,20 @@ export async function createMember(req: Request, res: Response): Promise<void> {
           full_name: newMember.full_name,
           phone: newMember.phone,
           status: newMember.status,
+          whatsapp_opt_in: whatsappOptIn,
         },
       })
     }
 
-    res.status(201).json({ success: true, data: newMember })
+    res.status(201).json({
+      success: true,
+      data: {
+        ...newMember,
+        whatsapp_opt_in: Boolean(
+          (newMember as any).whatsapp_opt_in ?? (newMember.notes && newMember.notes.includes('[opt_in:whatsapp]')),
+        ),
+      },
+    })
   } catch (err) {
     console.error('[membersController] createMember error', err)
     res.status(500).json({ success: false, message: 'Failed to create member.' })
@@ -494,7 +540,7 @@ export async function updateMember(req: Request, res: Response): Promise<void> {
   // Whitelist of editable fields
   const EDITABLE = [
     'full_name', 'phone', 'email', 'address',
-    'date_of_birth', 'joining_date', 'notes', 'status',
+    'date_of_birth', 'joining_date', 'notes', 'status', 'whatsapp_opt_in',
   ] as const
 
   const updates: Record<string, unknown> = {}
@@ -541,19 +587,69 @@ export async function updateMember(req: Request, res: Response): Promise<void> {
       return
     }
   }
+  if ('whatsapp_opt_in' in updates) {
+    updates.whatsapp_opt_in = updates.whatsapp_opt_in === true || updates.whatsapp_opt_in === 'true'
+  }
 
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ success: false, message: 'No valid fields to update.' })
     return
   }
 
+  // Sync notes tag if whatsapp_opt_in is present
+  if ('whatsapp_opt_in' in updates) {
+    const optIn = Boolean(updates.whatsapp_opt_in)
+    let curNotes = typeof updates.notes === 'string' ? updates.notes : undefined
+    if (curNotes === undefined) {
+      const { data: cur } = await supabase.from('members').select('notes').eq('id', id).single()
+      curNotes = cur?.notes ?? ''
+    }
+    const safeNotes = curNotes ?? ''
+    if (optIn) {
+      if (!safeNotes.includes('[opt_in:whatsapp]')) {
+        updates.notes = (safeNotes ? `${safeNotes} ` : '') + '[opt_in:whatsapp]'
+      }
+    } else {
+      if (safeNotes.includes('[opt_in:whatsapp]')) {
+        updates.notes = safeNotes.replace(/\[opt_in:whatsapp\]/g, '').trim() || null
+      }
+    }
+  }
+
   try {
-    const { data: updated, error } = await supabase
+    let { data: updated, error } = await supabase
       .from('members')
       .update(updates)
       .eq('id', id)
       .select()
       .single()
+
+    if (
+      error &&
+      (error.message?.includes('whatsapp_opt_in') ||
+        (error as { code?: string }).code === '42703' ||
+        (error as { code?: string }).code === 'PGRST204')
+    ) {
+      delete updates.whatsapp_opt_in
+      if (Object.keys(updates).length === 0) {
+        const fetchRes = await supabase
+          .from('members')
+          .select()
+          .eq('id', id)
+          .single()
+        updated = fetchRes.data
+        error = fetchRes.error
+      } else {
+        const retryRes = await supabase
+          .from('members')
+          .update(updates)
+          .eq('id', id)
+          .select()
+          .single()
+        updated = retryRes.data
+        error = retryRes.error
+      }
+    }
 
     if (error?.code === 'PGRST116' || !updated) {
       res.status(404).json({ success: false, message: 'Member not found.' })
@@ -569,7 +665,15 @@ export async function updateMember(req: Request, res: Response): Promise<void> {
       newData: updates,
     })
 
-    res.json({ success: true, data: updated })
+    res.json({
+      success: true,
+      data: {
+        ...updated,
+        whatsapp_opt_in: Boolean(
+          (updated as any).whatsapp_opt_in ?? (updated.notes && updated.notes.includes('[opt_in:whatsapp]')),
+        ),
+      },
+    })
   } catch (err) {
     console.error('[membersController] updateMember error', err)
     res.status(500).json({ success: false, message: 'Failed to update member.' })
