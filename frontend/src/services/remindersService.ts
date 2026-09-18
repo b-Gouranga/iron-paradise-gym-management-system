@@ -82,7 +82,7 @@ export async function fetchReminderSettings(accessToken: string): Promise<Remind
 export async function updateReminderSetting(
   accessToken: string,
   stage: ReminderStage,
-  payload: { is_enabled?: boolean; channel?: 'whatsapp' | 'sms' },
+  payload: { is_enabled?: boolean; channel?: 'whatsapp' | 'sms'; auto_generate?: boolean; max_retries?: number },
 ): Promise<ReminderSetting> {
   const res = await fetch(`${API_BASE}/api/reminders/settings/${stage}`, {
     method: 'PATCH',

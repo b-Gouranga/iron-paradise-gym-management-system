@@ -340,7 +340,7 @@ export async function getReminderSettings(req: Request, res: Response): Promise<
  */
 export async function updateReminderSetting(req: Request, res: Response): Promise<void> {
   const stage = String(req.params.stage || '').trim() as ReminderStage
-  const { is_enabled, channel } = req.body ?? {}
+  const { is_enabled, channel, auto_generate, max_retries } = req.body ?? {}
   const supabase = getSupabaseAdmin()
 
   const validStages: ReminderStage[] = [
@@ -356,7 +356,7 @@ export async function updateReminderSetting(req: Request, res: Response): Promis
     return
   }
 
-  const updates: Partial<ReminderSettingRow> = {
+  const updates: Partial<ReminderSettingRow> & { updated_at: string } = {
     updated_at: new Date().toISOString(),
   }
 
@@ -366,6 +366,22 @@ export async function updateReminderSetting(req: Request, res: Response): Promis
 
   if (channel === 'whatsapp' || channel === 'sms') {
     updates.channel = channel
+  }
+
+  if (typeof auto_generate === 'boolean') {
+    updates.auto_generate = auto_generate
+  }
+
+  if (typeof max_retries === 'number') {
+    const parsed = Math.floor(max_retries)
+    if (parsed < 0 || parsed > 10) {
+      res.status(400).json({
+        success: false,
+        message: 'max_retries must be an integer between 0 and 10.',
+      })
+      return
+    }
+    updates.max_retries = parsed
   }
 
   try {
@@ -387,6 +403,8 @@ export async function updateReminderSetting(req: Request, res: Response): Promis
         reminder_stage: updated.reminder_stage,
         is_enabled: updated.is_enabled,
         channel: updated.channel,
+        auto_generate: updated.auto_generate,
+        max_retries: updated.max_retries,
       },
     })
 

@@ -105,7 +105,7 @@ export function ReminderOverviewTab({ isOwner, accessToken }: ReminderOverviewTa
             </span>
           </div>
           <p className="mt-1 text-sm text-zinc-400">
-            Background reminder dispatcher logs simulated WhatsApp & SMS messages to immutable history without contacting external gateways.
+            Background reminder dispatcher sends WhatsApp messages via Meta Cloud API and logs an immutable delivery audit trail.
           </p>
         </div>
         <Button

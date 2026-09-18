@@ -24,6 +24,10 @@ export interface ReminderSetting {
   reminder_stage: ReminderStage
   is_enabled: boolean
   channel: ReminderChannel
+  /** When false the engine will not auto-schedule this stage. Manual send is still available. */
+  auto_generate: boolean
+  /** Max automatic retries per failed reminder per day (0–10). */
+  max_retries: number
   created_at: string
   updated_at: string
 }

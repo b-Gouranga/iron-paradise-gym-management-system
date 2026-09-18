@@ -42,7 +42,7 @@ export function RemindersPage() {
     <>
       <PageHeader
         title="Automated Reminders & History"
-        description="Configure automated expiry and payment reminder rules, manage candidate queues, and view simulated WhatsApp/SMS delivery audit history."
+        description="Configure automated expiry and payment reminder rules, manage the scheduled queue, and view WhatsApp delivery audit history."
       />
 
       {error && (

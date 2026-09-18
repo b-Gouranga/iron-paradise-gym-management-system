@@ -21,4 +21,6 @@ export const env = {
   metaWhatsAppApiVersion: process.env.META_WHATSAPP_API_VERSION || 'v25.0',
   metaWhatsAppVerifyToken: process.env.META_WHATSAPP_VERIFY_TOKEN || 'iron_paradise_verify_token_default',
   metaWhatsAppAppSecret: process.env.META_WHATSAPP_APP_SECRET || 'iron_paradise_app_secret_default',
+  /** Maximum number of scheduled reminders processed per worker run (default 50). */
+  reminderBatchSize: Math.max(1, Number(process.env.REMINDER_BATCH_SIZE) || 50),
 }

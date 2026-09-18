@@ -1,3 +1,4 @@
+import { env } from '../config/env.js'
 import { generateReminders, processReminders } from '../services/reminders/reminderEngine.js'
 
 /**
@@ -7,13 +8,17 @@ import { generateReminders, processReminders } from '../services/reminders/remin
  * - Can be invoked via system cron, cloud scheduler, container task, or systemd timer.
  * - Scans memberships, evaluates reminder stages, and dispatches due reminders.
  * - Adheres to all database idempotency and opt-in constraints.
+ * - Processes at most REMINDER_BATCH_SIZE reminders per run (default 50).
  *
  * Run:
  *   npm run worker:reminders
  */
 export async function runReminderWorker(): Promise<void> {
   const startTime = Date.now()
-  console.log(`[ReminderWorker] Starting automated reminder scan at ${new Date().toISOString()}...`)
+  const batchSize = env.reminderBatchSize
+  console.log(
+    `[ReminderWorker] Starting automated reminder scan at ${new Date().toISOString()} (batchSize=${batchSize})...`,
+  )
 
   try {
     // 1. Generate scheduled reminders for eligible memberships
@@ -26,8 +31,8 @@ export async function runReminderWorker(): Promise<void> {
       console.warn(`[ReminderWorker] Warnings during candidate generation:`, genResult.errors)
     }
 
-    // 2. Process and dispatch all scheduled reminders
-    const procResult = await processReminders()
+    // 2. Process and dispatch scheduled reminders (capped at batchSize)
+    const procResult = await processReminders({ batchSize })
     console.log(
       `[ReminderWorker] Dispatch complete. Processed: ${procResult.processedCount}, Sent: ${procResult.sentCount}, Failed: ${procResult.failedCount}`,
     )
