@@ -1,7 +1,7 @@
-import { Bell, Dumbbell, LogOut, Menu, Search, X } from 'lucide-react'
+import { Dumbbell, LogOut, Menu, Search, X } from 'lucide-react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
-import { Input } from '../components/Input'
+import { GlobalMemberSearch } from '../components/navigation/GlobalMemberSearch'
 import { useAuth } from '../hooks/useAuth'
 
 const navigation = [
@@ -63,6 +63,7 @@ function Sidebar({ close }: { close?: () => void }) {
 
 export function AppLayout() {
   const [open, setOpen] = useState(false)
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
   const { profile, logout } = useAuth()
@@ -106,62 +107,77 @@ export function AppLayout() {
       )}
 
       <main className="md:ml-72">
-        <header className="sticky top-0 z-20 flex h-20 items-center gap-4 border-b border-white/[.07] bg-[#111113]/90 px-4 backdrop-blur md:px-8">
-          <button
-            className="text-zinc-300 md:hidden"
-            aria-label="Open navigation"
-            onClick={() => setOpen(true)}
-          >
-            <Menu />
-          </button>
-
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium uppercase tracking-[.15em] text-zinc-500">
-              Operations
-            </p>
-            <p className="truncate text-base font-semibold text-white">{title}</p>
-          </div>
-
-          <div className="hidden w-64 lg:block">
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 text-zinc-500" size={16} />
-              <Input
-                aria-label="Search"
-                placeholder="Search members…"
-                className="py-2 pl-9"
+        <header className="sticky top-0 z-20 flex h-16 sm:h-20 items-center gap-3 sm:gap-4 border-b border-white/[.07] bg-[#111113]/90 px-3.5 sm:px-6 backdrop-blur md:px-8">
+          {mobileSearchOpen ? (
+            <div className="flex w-full items-center gap-2">
+              <GlobalMemberSearch
+                className="flex-1"
+                onSelect={() => setMobileSearchOpen(false)}
               />
+              <button
+                type="button"
+                onClick={() => setMobileSearchOpen(false)}
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white sm:hidden"
+                aria-label="Close search"
+              >
+                <X size={20} />
+              </button>
             </div>
-          </div>
+          ) : (
+            <>
+              <button
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-zinc-300 hover:bg-white/5 md:hidden"
+                aria-label="Open navigation"
+                onClick={() => setOpen(true)}
+              >
+                <Menu size={22} />
+              </button>
 
-          <button
-            aria-label="Notifications"
-            className="relative rounded-lg p-2 text-zinc-400 hover:bg-white/[.06] hover:text-white"
-          >
-            <Bell size={20} />
-            <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-brand" />
-          </button>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-medium uppercase tracking-[.15em] text-zinc-500">
+                  Operations
+                </p>
+                <p className="truncate text-base font-semibold text-white">{title}</p>
+              </div>
 
-          {/* User avatar + name + logout */}
-          <div className="flex items-center gap-2 border-l border-white/[.07] pl-3">
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-zinc-700 text-sm font-bold text-white">
-              {initials || '?'}
-            </div>
-            <div className="hidden sm:block">
-              <p className="text-sm font-semibold text-white">{displayName}</p>
-              <p className="text-xs capitalize text-zinc-500">{displayRole}</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              aria-label="Log out"
-              title="Log out"
-              className="ml-1 rounded-lg p-2 text-zinc-400 transition hover:bg-white/[.06] hover:text-white"
-            >
-              <LogOut size={17} />
-            </button>
-          </div>
+              {/* Desktop/Tablet search */}
+              <div className="hidden sm:block sm:w-64 md:w-72 lg:w-80">
+                <GlobalMemberSearch />
+              </div>
+
+              {/* Mobile search trigger */}
+              <button
+                type="button"
+                onClick={() => setMobileSearchOpen(true)}
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-zinc-400 hover:bg-white/[.06] hover:text-white sm:hidden"
+                aria-label="Search members"
+              >
+                <Search size={20} />
+              </button>
+
+              {/* User avatar + name + logout */}
+              <div className="flex items-center gap-2 border-l border-white/[.07] pl-3">
+                <div className="grid h-9 w-9 place-items-center rounded-full bg-zinc-700 text-sm font-bold text-white">
+                  {initials || '?'}
+                </div>
+                <div className="hidden md:block">
+                  <p className="text-sm font-semibold text-white">{displayName}</p>
+                  <p className="text-xs capitalize text-zinc-500">{displayRole}</p>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  aria-label="Log out"
+                  title="Log out"
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-zinc-400 transition hover:bg-white/[.06] hover:text-white"
+                >
+                  <LogOut size={17} />
+                </button>
+              </div>
+            </>
+          )}
         </header>
 
-        <div className="mx-auto max-w-[1600px] p-4 md:p-8">
+        <div className="mx-auto max-w-[1600px] p-3.5 sm:p-6 md:p-8">
           <Outlet />
         </div>
       </main>

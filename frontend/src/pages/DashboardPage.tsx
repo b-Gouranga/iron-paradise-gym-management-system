@@ -113,7 +113,7 @@ function RowActionMenu({ items }: { items: RowActionMenuItem[] }) {
           e.stopPropagation()
           setOpen(!open)
         }}
-        className="rounded p-1 text-zinc-400 hover:bg-white/[.08] hover:text-white transition"
+        className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/[.08] hover:text-white transition min-h-[32px] min-w-[32px] inline-flex items-center justify-center"
       >
         <MoreHorizontal size={18} />
       </button>
@@ -151,12 +151,12 @@ function SectionTitle({
   onClick?: () => void
 }) {
   return (
-    <div className="flex items-center justify-between px-5 py-4">
-      <h2 className="text-base font-semibold text-white">{title}</h2>
+    <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 sm:py-4 border-b border-white/[.07]">
+      <h2 className="text-sm sm:text-base font-semibold text-white">{title}</h2>
       <button
         type="button"
         onClick={onClick}
-        className="flex items-center gap-1 text-xs font-semibold text-brand hover:text-red-400"
+        className="flex min-h-[36px] items-center gap-1 text-xs font-semibold text-brand hover:text-red-400 transition py-1 px-2 rounded hover:bg-white/[.04]"
       >
         {action}
         <ArrowRight size={14} />
@@ -261,15 +261,15 @@ export function DashboardPage() {
       )}
 
       {/* ── Stat cards ─────────────────────────────────────────────────────── */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3 sm:gap-4 grid-cols-1 min-[480px]:grid-cols-2 xl:grid-cols-3">
         {statCards.map(sc => (
           <StatCard key={sc.label} {...sc} />
         ))}
       </div>
 
       {/* ── Upcoming Renewals + Reminder Summary ────────────────────────────── */}
-      <div className="mt-7 grid gap-7 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
+      <div className="mt-6 sm:mt-7 grid gap-6 sm:gap-7 xl:grid-cols-3">
+        <Card className="xl:col-span-2 overflow-hidden min-w-0">
           <SectionTitle
             title="Upcoming Renewals"
             action="View all"
@@ -277,6 +277,7 @@ export function DashboardPage() {
           />
           <DataTable
             headers={['Member', 'Membership Plan', 'Expiry Date', 'Days Left', 'Fee', 'Status', '']}
+            minWidth="min-w-[650px]"
           >
             {!loading && (data?.renewals.length ?? 0) === 0 ? (
               <EmptyTableRow
@@ -318,7 +319,7 @@ export function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => navigate('/renewals')}
-                        className="rounded-md bg-brand/10 px-2.5 py-1 text-xs font-semibold text-brand hover:bg-brand/20 transition"
+                        className="rounded-lg bg-brand/10 px-3 py-1.5 text-xs font-semibold text-brand hover:bg-brand/20 transition min-h-[32px] inline-flex items-center justify-center"
                         title="Renew membership in Renewals Workbench"
                       >
                         Renew
@@ -346,19 +347,19 @@ export function DashboardPage() {
         </Card>
 
         {/* Reminder Summary — live real data (Part 9) */}
-        <Card className="flex flex-col">
+        <Card className="flex flex-col overflow-hidden min-w-0">
           <SectionTitle
             title="Reminder Summary"
             action="Manage"
             onClick={() => navigate('/reminders')}
           />
-          <div className="flex-1 px-5 pb-5">
+          <div className="flex-1 p-4 sm:p-5">
             {loading ? (
               <div className="py-10 text-center text-xs text-zinc-500">Loading reminders…</div>
             ) : (
               <div className="space-y-4">
                 {/* Metrics Pill Row */}
-                <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/[.08] bg-white/[.02] p-3 text-center">
+                <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/[.08] bg-white/[.02] p-2.5 sm:p-3 text-center">
                   <div>
                     <p className="text-[10px] uppercase font-semibold tracking-wider text-zinc-500">
                       Scheduled
@@ -433,8 +434,8 @@ export function DashboardPage() {
       </div>
 
       {/* ── Pending Payments + Recent Payments ──────────────────────────────── */}
-      <div className="mt-7 grid gap-7 xl:grid-cols-2">
-        <Card>
+      <div className="mt-6 sm:mt-7 grid gap-6 sm:gap-7 xl:grid-cols-2">
+        <Card className="overflow-hidden min-w-0">
           <SectionTitle
             title="Pending Payments"
             action="View all"
@@ -442,6 +443,7 @@ export function DashboardPage() {
           />
           <DataTable
             headers={['Member', 'Membership', 'Pending', 'Due Date', 'Status', '']}
+            minWidth="min-w-[580px]"
           >
             {!loading && (data?.pendingPayments.length ?? 0) === 0 ? (
               <EmptyTableRow
@@ -474,7 +476,7 @@ export function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => navigate(p.memberId ? `/members/${p.memberId}` : '/payments')}
-                        className="rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 transition"
+                        className="rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 transition min-h-[32px] inline-flex items-center justify-center"
                         title="View member or record payment"
                       >
                         View
@@ -501,13 +503,16 @@ export function DashboardPage() {
           </DataTable>
         </Card>
 
-        <Card>
+        <Card className="overflow-hidden min-w-0">
           <SectionTitle
             title="Recent Payments"
             action="View all"
             onClick={() => navigate('/payments')}
           />
-          <DataTable headers={['Member', 'Amount', 'Date', 'Method', 'Status']}>
+          <DataTable
+            headers={['Member', 'Amount', 'Date', 'Method', 'Status']}
+            minWidth="min-w-[500px]"
+          >
             {!loading && (data?.recentPayments.length ?? 0) === 0 ? (
               <EmptyTableRow
                 colSpan={5}

@@ -84,6 +84,10 @@ export function MemberFormModal({
       setError('Phone number is required.')
       return
     }
+    if (!/^[6-9]\d{9}$/.test(trimmedPhone)) {
+      setError('Phone number must be a valid 10-digit Indian mobile number (e.g. 9876543210). Do not include +91, 0, spaces, or dashes.')
+      return
+    }
     if (!trimmedJoiningDate) {
       setError('Joining date is required.')
       return
@@ -207,8 +211,12 @@ export function MemberFormModal({
                 type="tel"
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
-                placeholder="e.g. +91 98765 43210"
+                placeholder="e.g. 9876543210"
+                maxLength={10}
               />
+              <p className="mt-1 text-[11px] text-zinc-500">
+                Must be exactly 10 digits (e.g. 9876543210) without +91, 0, or spaces.
+              </p>
             </div>
           </div>
 

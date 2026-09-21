@@ -1,12 +1,5 @@
 import type { Request, Response } from 'express'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
-import {
-  countUniqueActiveMembers,
-  isMembershipActive,
-  isMembershipEligibleForPendingDues,
-  isMembershipExpired,
-  isMembershipExpiringSoon,
-} from '../utils/membershipStatus.js'
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -25,20 +18,25 @@ function firstOfMonth(): string {
 
 // ── Raw row shapes returned by Supabase (admin client is untyped) ─────────────
 
-interface MembershipRow {
+interface ActiveMembershipRow {
+  member_id: string
+}
+
+interface PendingMembershipRow {
   id: string
   actual_fee: number
   payment_due_date: string | null
-  start_date: string
-  expiry_date: string
-  status: string
   member_id: string
   plan_id: string
+  payments: Array<{ amount: number }> | null
 }
 
-interface PaymentSumRow {
-  membership_id: string
-  amount: number
+interface RenewalMembershipRow {
+  id: string
+  member_id: string
+  plan_id: string
+  expiry_date: string
+  actual_fee: number
 }
 
 interface MemberLookupRow {
@@ -64,6 +62,15 @@ interface MonthRevenueRow {
   amount: number
 }
 
+interface RecentReminderRow {
+  id: string
+  reminder_stage: string
+  channel: string
+  status: string
+  scheduled_at: string
+  member_id: string
+}
+
 // ── Controller ────────────────────────────────────────────────────────────────
 
 /**
@@ -76,11 +83,31 @@ interface MonthRevenueRow {
  * Only computed results are returned to the browser; no raw financial rows are
  * sent to the frontend.
  *
- * Performance: all independent queries run in parallel via Promise.all.
- * Node.js in-process joins replace complex SQL joins to avoid requiring a DB
- * migration. For a gym-sized dataset (hundreds–low thousands of records) this
- * is fast and acceptable. A dedicated DB view or RPC can be added in a future
- * optimisation pass without changing the API contract.
+ * Architecture & Performance:
+ * 1. Phase 1 executes 14 parallel queries via Promise.all:
+ *    - 7 HEAD queries returning counts with 0 rows transferred (total members,
+ *      expiring soon, expired, scheduled reminders, sent/delivered reminders,
+ *      failed reminders, total reminders).
+ *    - 3 bounded queries limited server-side (top 10 renewals, top 10 recent
+ *      payments, top 5 recent reminders).
+ *    - 1 narrow lookup for active membership member_ids (to compute unique active count).
+ *    - 1 nested relational lookup for eligible memberships (id, fee, due date, member_id,
+ *      plan_id) and their associated payment amounts via `payments!payments_member_membership_match(amount)`.
+ *      Pre-sorted by payment_due_date ASC NULLS LAST in PostgreSQL.
+ *      This completely eliminates the secondary sequential payment waterfall.
+ *    - 1 small plan reference table lookup (~5-10 rows).
+ *    - 1 current-month payment revenue query (filtered by payment_date >= monthStart).
+ * 2. Phase 2 executes a targeted member lookup scoped strictly to the unique member IDs
+ *    actually displayed on the dashboard (max 35 members).
+ *
+ * Database Limitations & Trade-offs:
+ * - Pending Payments: Computed using the verified foreign key relationship
+ *   `payments!payments_member_membership_match` in a single query.
+ *   Pending dues = actual_fee - sum(payments.amount). Evaluates active and expired
+ *   memberships with start_date <= today and actual_fee > 0.
+ * - Monthly Revenue: PostgREST does not provide native column SUM() over HTTP REST.
+ *   Without an RPC or database view, summing payment.amount where payment_date >= monthStart
+ *   in Node.js preserves the exact revenue calculation without introducing approximations.
  */
 export async function getSummary(_req: Request, res: Response): Promise<void> {
   const supabase = getSupabaseAdmin()
@@ -92,125 +119,181 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
   const monthStart = firstOfMonth()
 
   try {
-    // ── All queries run in parallel ───────────────────────────────────────────
+    // ── Phase 1: Parallel server-side filtered & aggregate queries (14 queries) ──
     const [
       totalMembersRes,
-      activeMembersRes,
+      activeMembershipsRes,
       expiringSoonRes,
       expiredRes,
-      membershipsRes,
-      paymentSumsRes,
-      membersRes,
+      upcomingRenewalsRes,
+      eligibleMembershipsRes,
       plansRes,
       recentPaymentsRes,
       monthRevenueRes,
       recentRemindersRes,
-      allRemindersRes,
+      scheduledRemindersRes,
+      sentAndDeliveredRemindersRes,
+      failedRemindersRes,
+      totalRemindersRes,
     ] = await Promise.all([
-      // 1. COUNT of all members
+      // 1. COUNT of all members (HEAD query - 0 rows transferred)
       supabase.from('members').select('*', { count: 'exact', head: true }),
-      // 2. COUNT of active members
-      supabase.from('members').select('*', { count: 'exact', head: true }).eq('status', 'active'),
-      // 3. COUNT of active memberships expiring within 7 days
-      supabase.from('memberships')
+
+      // 2. Active memberships (only member_id of valid active memberships)
+      supabase
+        .from('memberships')
+        .select('member_id')
+        .neq('status', 'cancelled')
+        .lte('start_date', today)
+        .gte('expiry_date', today),
+
+      // 3. COUNT of active memberships expiring within 7 days (HEAD query - 0 rows transferred)
+      supabase
+        .from('memberships')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'active')
+        .neq('status', 'cancelled')
+        .lte('start_date', today)
         .gte('expiry_date', today)
         .lte('expiry_date', sevenDaysOut),
-      // 4. COUNT of expired memberships
-      supabase.from('memberships')
+
+      // 4. COUNT of expired memberships (HEAD query - 0 rows transferred)
+      supabase
+        .from('memberships')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'expired'),
-      // 5. All memberships (for pending calc + renewal + pending list)
-      supabase.from('memberships')
-        .select('id, actual_fee, payment_due_date, start_date, expiry_date, status, member_id, plan_id'),
-      // 6. All payment amounts grouped by membership (for pending calc)
-      supabase.from('payments').select('membership_id, amount'),
-      // 7. Member id → name lookup
-      supabase.from('members').select('id, full_name'),
-      // 8. Plan id → name lookup
+        .neq('status', 'cancelled')
+        .lt('expiry_date', today),
+
+      // 5. 10 upcoming renewals in [sevenDaysAgo, fourteenDaysOut] (bounded server-side: max 10 rows)
+      supabase
+        .from('memberships')
+        .select('id, member_id, plan_id, expiry_date, actual_fee')
+        .neq('status', 'cancelled')
+        .lte('start_date', today)
+        .gte('expiry_date', sevenDaysAgo)
+        .lte('expiry_date', fourteenDaysOut)
+        .order('expiry_date', { ascending: true })
+        .limit(10),
+
+      // 6. Eligible memberships for pending dues with nested payment amounts
+      // Uses the verified FK constraint `payments_member_membership_match`.
+      // Eliminates the sequential payment waterfall.
+      supabase
+        .from('memberships')
+        .select(`
+          id,
+          actual_fee,
+          payment_due_date,
+          member_id,
+          plan_id,
+          payments!payments_member_membership_match (
+            amount
+          )
+        `)
+        .neq('status', 'cancelled')
+        .lte('start_date', today)
+        .gt('actual_fee', 0)
+        .order('payment_due_date', { ascending: true, nullsFirst: false }),
+
+      // 7. Plan id → name lookup (bounded small reference table: ~5-10 rows)
       supabase.from('membership_plans').select('id, name'),
-      // 9. 10 most recent payment records (for Recent Payments list)
-      supabase.from('payments')
+
+      // 8. 10 most recent payment records (bounded server-side: max 10 rows)
+      supabase
+        .from('payments')
         .select('id, amount, payment_date, payment_method, purpose, member_id')
         .order('created_at', { ascending: false })
         .limit(10),
-      // 10. Payments in the current calendar month (for revenue calc)
-      supabase.from('payments')
+
+      // 9. Payments in the current calendar month for revenue calc (payment_date >= monthStart)
+      supabase
+        .from('payments')
         .select('amount')
         .gte('payment_date', monthStart),
-      // 11. 5 most recent reminders
-      supabase.from('reminders')
+
+      // 10. 5 most recent reminders (bounded server-side: max 5 rows)
+      supabase
+        .from('reminders')
         .select('id, reminder_stage, channel, status, scheduled_at, member_id')
         .order('scheduled_at', { ascending: false })
         .limit(5),
-      // 12. All reminder statuses (for counts)
-      supabase.from('reminders').select('status'),
+
+      // 11-14. Server-side reminder counts (HEAD queries - 0 rows transferred)
+      supabase
+        .from('reminders')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'scheduled'),
+      supabase
+        .from('reminders')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['sent', 'delivered']),
+      supabase
+        .from('reminders')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'failed'),
+      supabase.from('reminders').select('*', { count: 'exact', head: true }),
     ])
 
-    // Fail fast if any query errored
+    // Fail fast if any Phase 1 query errored
     const results = [
-      totalMembersRes, activeMembersRes, expiringSoonRes, expiredRes,
-      membershipsRes, paymentSumsRes, membersRes, plansRes,
-      recentPaymentsRes, monthRevenueRes,
-      recentRemindersRes, allRemindersRes,
+      totalMembersRes,
+      activeMembershipsRes,
+      expiringSoonRes,
+      expiredRes,
+      upcomingRenewalsRes,
+      eligibleMembershipsRes,
+      plansRes,
+      recentPaymentsRes,
+      monthRevenueRes,
+      recentRemindersRes,
+      scheduledRemindersRes,
+      sentAndDeliveredRemindersRes,
+      failedRemindersRes,
+      totalRemindersRes,
     ] as const
     for (const r of results) {
       if (r.error) throw r.error
     }
 
-    // ── Build lookup maps (O(n) construction, O(1) lookup) ────────────────────
-
-    const memberMap = new Map<string, string>(
-      ((membersRes.data ?? []) as unknown as MemberLookupRow[])
-        .map(m => [m.id, m.full_name]),
-    )
+    // ── Build plan map ────────────────────────────────────────────────────────
     const planMap = new Map<string, string>(
-      ((plansRes.data ?? []) as unknown as PlanLookupRow[])
-        .map(p => [p.id, p.name]),
+      ((plansRes.data ?? []) as unknown as PlanLookupRow[]).map(p => [p.id, p.name]),
     )
-    // Sum all payment amounts per membership_id
-    const paidByMembership = new Map<string, number>()
-    for (const p of (paymentSumsRes.data ?? []) as unknown as PaymentSumRow[]) {
-      paidByMembership.set(
-        p.membership_id,
-        (paidByMembership.get(p.membership_id) ?? 0) + Number(p.amount),
-      )
-    }
 
     // ── Stats ────────────────────────────────────────────────────────────────
-
-    const memberships = (membershipsRes.data ?? []) as unknown as MembershipRow[]
-
     const totalMembers = totalMembersRes.count ?? 0
-    const activeMembers = countUniqueActiveMembers(memberships, today)
-    const expiringSoon = memberships.filter(m => isMembershipExpiringSoon(m, today, 7)).length
-    const expired = memberships.filter(m => isMembershipExpired(m, today)).length
 
-    const revenueThisMonth = ((monthRevenueRes.data ?? []) as unknown as MonthRevenueRow[])
-      .reduce((sum, p) => sum + Number(p.amount), 0)
+    // Unique active members
+    const activeMemberIds = new Set(
+      ((activeMembershipsRes.data ?? []) as unknown as ActiveMembershipRow[]).map(
+        m => m.member_id,
+      ),
+    )
+    const activeMembers = activeMemberIds.size
+
+    const expiringSoon = expiringSoonRes.count ?? 0
+    const expired = expiredRes.count ?? 0
+
+    const revenueThisMonth = (
+      (monthRevenueRes.data ?? []) as unknown as MonthRevenueRow[]
+    ).reduce((sum, p) => sum + Number(p.amount), 0)
 
     // ── Pending payments: stat totals + bounded list ──────────────────────────
     //
     // pending = actual_fee − sum(payments for this membership)
-    // This is calculated from historical data; actual_fee is immutable per
-    // REQUIREMENTS.md. Financial calculations run server-side only.
-
-    // Sort by payment_due_date ASC (nulls last) so the list shows most-urgent first
-    const sortedMemberships = [...memberships].sort((a, b) => {
-      if (!a.payment_due_date && !b.payment_due_date) return 0
-      if (!a.payment_due_date) return 1
-      if (!b.payment_due_date) return -1
-      return a.payment_due_date.localeCompare(b.payment_due_date)
-    })
+    // Payments are nested directly in each eligible membership, completely eliminating
+    // the previous sequential Phase 2 query.
+    // Database query already sorted by payment_due_date ASC NULLS LAST; no in-memory
+    // sort is necessary.
+    const eligibleMemberships = (
+      eligibleMembershipsRes.data ?? []
+    ) as unknown as PendingMembershipRow[]
 
     let pendingPaymentsAmount = 0
     let pendingPaymentsCount = 0
-    const pendingList: Array<{
+    const pendingItems: Array<{
       membershipId: string
       memberId: string
-      memberName: string
-      planName: string
+      planId: string
       actualFee: number
       paidAmount: number
       pendingAmount: number
@@ -218,22 +301,22 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
       paymentStatus: 'unpaid' | 'partially_paid' | 'overdue'
     }> = []
 
-    for (const m of sortedMemberships) {
-      if (!isMembershipEligibleForPendingDues(m, today)) continue
-
-      const paid = paidByMembership.get(m.id) ?? 0
+    for (const m of eligibleMemberships) {
+      const paid = (m.payments ?? []).reduce(
+        (sum, p) => sum + Number(p.amount),
+        0,
+      )
       const pending = Number(m.actual_fee) - paid
-      if (pending > 0.005) {  // tolerance for floating-point noise
+      if (pending > 0.005) {
         pendingPaymentsAmount += pending
         pendingPaymentsCount++
-        if (pendingList.length < 10) {
+        if (pendingItems.length < 10) {
           const isOverdue =
             m.payment_due_date != null && m.payment_due_date < today
-          pendingList.push({
+          pendingItems.push({
             membershipId: m.id,
             memberId: m.member_id,
-            memberName: memberMap.get(m.member_id) ?? 'Unknown',
-            planName: planMap.get(m.plan_id) ?? 'Unknown Plan',
+            planId: m.plan_id,
             actualFee: Number(m.actual_fee),
             paidAmount: Math.round(paid * 100) / 100,
             pendingAmount: Math.round(pending * 100) / 100,
@@ -246,44 +329,71 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
     }
     pendingPaymentsAmount = Math.round(pendingPaymentsAmount * 100) / 100
 
-    // ── Upcoming renewals list ────────────────────────────────────────────────
-    //
-    // Show active memberships expiring between 7 days ago and 14 days from now.
-    // This catches memberships that are about to expire AND ones that expired
-    // very recently but haven't been renewed yet (status still 'active' since
-    // the status field is application-managed, not auto-updated by a trigger).
+    // ── Phase 2: Targeted member lookup for bounded lists ────────────────────
+    const renewalsRaw = (
+      upcomingRenewalsRes.data ?? []
+    ) as unknown as RenewalMembershipRow[]
+    const recentPaymentsRaw = (
+      recentPaymentsRes.data ?? []
+    ) as unknown as RecentPaymentRow[]
+    const recentRemindersRaw = (
+      recentRemindersRes.data ?? []
+    ) as unknown as RecentReminderRow[]
 
+    const neededMemberIds = Array.from(
+      new Set([
+        ...renewalsRaw.map(r => r.member_id),
+        ...pendingItems.map(p => p.memberId),
+        ...recentPaymentsRaw.map(p => p.member_id),
+        ...recentRemindersRaw.map(r => r.member_id),
+      ]),
+    ).filter(Boolean)
+
+    const memberMap = new Map<string, string>()
+    if (neededMemberIds.length > 0) {
+      const membersRes = await supabase
+        .from('members')
+        .select('id, full_name')
+        .in('id', neededMemberIds)
+
+      if (membersRes.error) throw membersRes.error
+
+      for (const m of (membersRes.data ?? []) as unknown as MemberLookupRow[]) {
+        memberMap.set(m.id, m.full_name)
+      }
+    }
+
+    // ── Build pending payments list with member and plan names ───────────────
+    const pendingList = pendingItems.map(p => ({
+      membershipId: p.membershipId,
+      memberId: p.memberId,
+      memberName: memberMap.get(p.memberId) ?? 'Unknown',
+      planName: planMap.get(p.planId) ?? 'Unknown Plan',
+      actualFee: p.actualFee,
+      paidAmount: p.paidAmount,
+      pendingAmount: p.pendingAmount,
+      paymentDueDate: p.paymentDueDate,
+      paymentStatus: p.paymentStatus,
+    }))
+
+    // ── Build upcoming renewals list ─────────────────────────────────────────
     const nowMs = new Date(today + 'T00:00:00').getTime()
+    const renewalsList = renewalsRaw.map(m => {
+      const expiryMs = new Date(m.expiry_date + 'T00:00:00').getTime()
+      const daysLeft = Math.round((expiryMs - nowMs) / 86_400_000)
+      return {
+        membershipId: m.id,
+        memberId: m.member_id,
+        memberName: memberMap.get(m.member_id) ?? 'Unknown',
+        planName: planMap.get(m.plan_id) ?? 'Unknown Plan',
+        expiryDate: m.expiry_date,
+        daysLeft,
+        actualFee: Number(m.actual_fee),
+      }
+    })
 
-    const renewalsList = memberships
-      .filter(
-        m =>
-          m.status !== 'cancelled' &&
-          m.start_date <= today &&
-          m.expiry_date >= sevenDaysAgo &&
-          m.expiry_date <= fourteenDaysOut,
-      )
-      .sort((a, b) => a.expiry_date.localeCompare(b.expiry_date))
-      .slice(0, 10)
-      .map(m => {
-        const expiryMs = new Date(m.expiry_date + 'T00:00:00').getTime()
-        const daysLeft = Math.round((expiryMs - nowMs) / 86_400_000)
-        return {
-          membershipId: m.id,
-          memberId: m.member_id,
-          memberName: memberMap.get(m.member_id) ?? 'Unknown',
-          planName: planMap.get(m.plan_id) ?? 'Unknown Plan',
-          expiryDate: m.expiry_date,
-          daysLeft,
-          actualFee: Number(m.actual_fee),
-        }
-      })
-
-    // ── Recent payments list ──────────────────────────────────────────────────
-
-    const recentPaymentsList = (
-      (recentPaymentsRes.data ?? []) as unknown as RecentPaymentRow[]
-    ).map(p => ({
+    // ── Build recent payments list ───────────────────────────────────────────
+    const recentPaymentsList = recentPaymentsRaw.map(p => ({
       paymentId: p.id,
       memberId: p.member_id,
       memberName: memberMap.get(p.member_id) ?? 'Unknown',
@@ -293,27 +403,13 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
       purpose: p.purpose,
     }))
 
-    // ── Reminders summary ───────────────────────────────────────────────────
+    // ── Build reminders summary ──────────────────────────────────────────────
+    const scheduledRemindersCount = scheduledRemindersRes.count ?? 0
+    const sentRemindersCount = sentAndDeliveredRemindersRes.count ?? 0
+    const failedRemindersCount = failedRemindersRes.count ?? 0
+    const totalRemindersCount = totalRemindersRes.count ?? 0
 
-    let scheduledRemindersCount = 0
-    let sentRemindersCount = 0
-    let failedRemindersCount = 0
-    for (const r of (allRemindersRes.data ?? []) as Array<{ status: string }>) {
-      if (r.status === 'scheduled') scheduledRemindersCount++
-      else if (r.status === 'sent' || r.status === 'delivered') sentRemindersCount++
-      else if (r.status === 'failed') failedRemindersCount++
-    }
-
-    const recentRemindersList = (
-      (recentRemindersRes.data ?? []) as Array<{
-        id: string
-        reminder_stage: string
-        channel: string
-        status: string
-        scheduled_at: string
-        member_id: string
-      }>
-    ).map(r => ({
+    const recentRemindersList = recentRemindersRaw.map(r => ({
       id: r.id,
       memberName: memberMap.get(r.member_id) ?? 'Unknown Member',
       reminderStage: r.reminder_stage,
@@ -322,8 +418,7 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
       scheduledAt: r.scheduled_at,
     }))
 
-    // ── Response ──────────────────────────────────────────────────────────────
-
+    // ── Response ─────────────────────────────────────────────────────────────
     res.json({
       success: true,
       data: {
@@ -343,7 +438,7 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
           scheduledCount: scheduledRemindersCount,
           sentCount: sentRemindersCount,
           failedCount: failedRemindersCount,
-          totalCount: (allRemindersRes.data ?? []).length,
+          totalCount: totalRemindersCount,
           recentReminders: recentRemindersList,
         },
       },

@@ -107,9 +107,14 @@ async function attachMemberships(
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const PHONE_RE = /^[6-9]\d{9}$/
 
 function validateEmail(v: string): boolean {
   return EMAIL_RE.test(v)
+}
+
+function validatePhone(v: string): boolean {
+  return PHONE_RE.test(v)
 }
 
 function validateDate(v: string): boolean {
@@ -257,9 +262,18 @@ export async function listMembers(req: Request, res: Response): Promise<void> {
       )
 
     if (searchTerm) {
-      query = query.or(
-        `full_name.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,member_code.ilike.%${searchTerm}%`,
-      )
+      const cleanedDigits = searchTerm.replace(/\D/g, '')
+      const nationalDigits = cleanedDigits.length >= 10 ? cleanedDigits.slice(-10) : ''
+      const conditions = [
+        `full_name.ilike.%${searchTerm}%`,
+        `phone.ilike.%${searchTerm}%`,
+        `email.ilike.%${searchTerm}%`,
+        `member_code.ilike.%${searchTerm}%`,
+      ]
+      if (nationalDigits && nationalDigits !== searchTerm) {
+        conditions.push(`phone.ilike.%${nationalDigits}%`)
+      }
+      query = query.or(conditions.join(','))
     }
 
     if (safeFilter === 'active' || safeFilter === 'inactive') {
@@ -399,7 +413,13 @@ export async function createMember(req: Request, res: Response): Promise<void> {
 
   const errors: string[] = []
   if (!fullName) errors.push('Full name is required.')
-  if (!phone) errors.push('Phone number is required.')
+  if (!phone) {
+    errors.push('Phone number is required.')
+  } else if (!validatePhone(phone)) {
+    errors.push(
+      'Phone number must be a valid 10-digit Indian mobile number (e.g. 9876543210). Do not include +91, 0, spaces, or dashes.',
+    )
+  }
   if (!joiningDate) {
     errors.push('Joining date is required.')
   } else if (!validateDate(joiningDate)) {
@@ -564,6 +584,13 @@ export async function updateMember(req: Request, res: Response): Promise<void> {
   if ('phone' in updates) {
     const v = String(updates.phone ?? '').trim()
     if (!v) { res.status(400).json({ success: false, message: 'Phone number cannot be empty.' }); return }
+    if (!validatePhone(v)) {
+      res.status(400).json({
+        success: false,
+        message: 'Phone number must be a valid 10-digit Indian mobile number (e.g. 9876543210). Do not include +91, 0, spaces, or dashes.',
+      })
+      return
+    }
     updates.phone = v
   }
   if ('joining_date' in updates) {

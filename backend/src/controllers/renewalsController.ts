@@ -138,9 +138,13 @@ export async function getUpcomingRenewals(req: Request, res: Response): Promise<
 
       // Search filter
       if (q) {
+        const cleanDigits = q.replace(/\D/g, '')
+        const nationalDigits = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : ''
         const matchName = (member?.full_name || '').toLowerCase().includes(q)
         const matchCode = (member?.member_code || '').toLowerCase().includes(q)
-        const matchPhone = (member?.phone || '').toLowerCase().includes(q)
+        const matchPhone =
+          (member?.phone || '').toLowerCase().includes(q) ||
+          (nationalDigits ? (member?.phone || '').includes(nationalDigits) : false)
         const matchPlan = (plan?.name || '').toLowerCase().includes(q)
         if (!matchName && !matchCode && !matchPhone && !matchPlan) {
           continue
@@ -285,9 +289,13 @@ export async function getExpiredRenewals(req: Request, res: Response): Promise<v
       const plan = planMap.get(m.plan_id)
 
       if (q) {
+        const cleanDigits = q.replace(/\D/g, '')
+        const nationalDigits = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : ''
         const matchName = (member?.full_name || '').toLowerCase().includes(q)
         const matchCode = (member?.member_code || '').toLowerCase().includes(q)
-        const matchPhone = (member?.phone || '').toLowerCase().includes(q)
+        const matchPhone =
+          (member?.phone || '').toLowerCase().includes(q) ||
+          (nationalDigits ? (member?.phone || '').includes(nationalDigits) : false)
         const matchPlan = (plan?.name || '').toLowerCase().includes(q)
         if (!matchName && !matchCode && !matchPhone && !matchPlan) {
           continue
