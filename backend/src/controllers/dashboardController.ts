@@ -1,5 +1,22 @@
 import type { Request, Response } from 'express'
+import { performance } from 'node:perf_hooks'
 import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
+
+// ── Timing helper for diagnostic logging ─────────────────────────────────────
+
+async function timeQuery<T>(name: string, queryPromise: PromiseLike<T>): Promise<T> {
+  const start = performance.now()
+  try {
+    const result = await queryPromise
+    const duration = Math.round(performance.now() - start)
+    console.log(`[DashboardTiming] ${name}: ${duration}ms`)
+    return result
+  } catch (err) {
+    const duration = Math.round(performance.now() - start)
+    console.log(`[DashboardTiming] ${name} (failed): ${duration}ms`)
+    throw err
+  }
+}
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -110,6 +127,7 @@ interface RecentReminderRow {
  *   in Node.js preserves the exact revenue calculation without introducing approximations.
  */
 export async function getSummary(_req: Request, res: Response): Promise<void> {
+  const dashboardStart = performance.now()
   const supabase = getSupabaseAdmin()
 
   const today = isoDate(0)
@@ -120,6 +138,7 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
 
   try {
     // ── Phase 1: Parallel server-side filtered & aggregate queries (14 queries) ──
+    const phase1Start = performance.now()
     const [
       totalMembersRes,
       activeMembershipsRes,
@@ -137,101 +156,146 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
       totalRemindersRes,
     ] = await Promise.all([
       // 1. COUNT of all members (HEAD query - 0 rows transferred)
-      supabase.from('members').select('*', { count: 'exact', head: true }),
+      timeQuery(
+        'totalMembers',
+        supabase.from('members').select('*', { count: 'exact', head: true }),
+      ),
 
       // 2. Active memberships (only member_id of valid active memberships)
-      supabase
-        .from('memberships')
-        .select('member_id')
-        .neq('status', 'cancelled')
-        .lte('start_date', today)
-        .gte('expiry_date', today),
+      timeQuery(
+        'activeMembers',
+        supabase
+          .from('memberships')
+          .select('member_id')
+          .neq('status', 'cancelled')
+          .lte('start_date', today)
+          .gte('expiry_date', today),
+      ),
 
       // 3. COUNT of active memberships expiring within 7 days (HEAD query - 0 rows transferred)
-      supabase
-        .from('memberships')
-        .select('*', { count: 'exact', head: true })
-        .neq('status', 'cancelled')
-        .lte('start_date', today)
-        .gte('expiry_date', today)
-        .lte('expiry_date', sevenDaysOut),
+      timeQuery(
+        'expiringSoon',
+        supabase
+          .from('memberships')
+          .select('*', { count: 'exact', head: true })
+          .neq('status', 'cancelled')
+          .lte('start_date', today)
+          .gte('expiry_date', today)
+          .lte('expiry_date', sevenDaysOut),
+      ),
 
       // 4. COUNT of expired memberships (HEAD query - 0 rows transferred)
-      supabase
-        .from('memberships')
-        .select('*', { count: 'exact', head: true })
-        .neq('status', 'cancelled')
-        .lt('expiry_date', today),
+      timeQuery(
+        'expired',
+        supabase
+          .from('memberships')
+          .select('*', { count: 'exact', head: true })
+          .neq('status', 'cancelled')
+          .lt('expiry_date', today),
+      ),
 
       // 5. 10 upcoming renewals in [sevenDaysAgo, fourteenDaysOut] (bounded server-side: max 10 rows)
-      supabase
-        .from('memberships')
-        .select('id, member_id, plan_id, expiry_date, actual_fee')
-        .neq('status', 'cancelled')
-        .lte('start_date', today)
-        .gte('expiry_date', sevenDaysAgo)
-        .lte('expiry_date', fourteenDaysOut)
-        .order('expiry_date', { ascending: true })
-        .limit(10),
+      timeQuery(
+        'upcomingRenewals',
+        supabase
+          .from('memberships')
+          .select('id, member_id, plan_id, expiry_date, actual_fee')
+          .neq('status', 'cancelled')
+          .lte('start_date', today)
+          .gte('expiry_date', sevenDaysAgo)
+          .lte('expiry_date', fourteenDaysOut)
+          .order('expiry_date', { ascending: true })
+          .limit(10),
+      ),
 
       // 6. Eligible memberships for pending dues with nested payment amounts
       // Uses the verified FK constraint `payments_member_membership_match`.
       // Eliminates the sequential payment waterfall.
-      supabase
-        .from('memberships')
-        .select(`
-          id,
-          actual_fee,
-          payment_due_date,
-          member_id,
-          plan_id,
-          payments!payments_member_membership_match (
-            amount
-          )
-        `)
-        .neq('status', 'cancelled')
-        .lte('start_date', today)
-        .gt('actual_fee', 0)
-        .order('payment_due_date', { ascending: true, nullsFirst: false }),
+      timeQuery(
+        'eligibleMembershipsWithPayments',
+        supabase
+          .from('memberships')
+          .select(`
+            id,
+            actual_fee,
+            payment_due_date,
+            member_id,
+            plan_id,
+            payments!payments_member_membership_match (
+              amount
+            )
+          `)
+          .neq('status', 'cancelled')
+          .lte('start_date', today)
+          .gt('actual_fee', 0)
+          .order('payment_due_date', { ascending: true, nullsFirst: false }),
+      ),
 
       // 7. Plan id → name lookup (bounded small reference table: ~5-10 rows)
-      supabase.from('membership_plans').select('id, name'),
+      timeQuery(
+        'membershipPlans',
+        supabase.from('membership_plans').select('id, name'),
+      ),
 
       // 8. 10 most recent payment records (bounded server-side: max 10 rows)
-      supabase
-        .from('payments')
-        .select('id, amount, payment_date, payment_method, purpose, member_id')
-        .order('created_at', { ascending: false })
-        .limit(10),
+      timeQuery(
+        'recentPayments',
+        supabase
+          .from('payments')
+          .select('id, amount, payment_date, payment_method, purpose, member_id')
+          .order('created_at', { ascending: false })
+          .limit(10),
+      ),
 
       // 9. Payments in the current calendar month for revenue calc (payment_date >= monthStart)
-      supabase
-        .from('payments')
-        .select('amount')
-        .gte('payment_date', monthStart),
+      timeQuery(
+        'monthlyRevenue',
+        supabase
+          .from('payments')
+          .select('amount')
+          .gte('payment_date', monthStart),
+      ),
 
       // 10. 5 most recent reminders (bounded server-side: max 5 rows)
-      supabase
-        .from('reminders')
-        .select('id, reminder_stage, channel, status, scheduled_at, member_id')
-        .order('scheduled_at', { ascending: false })
-        .limit(5),
+      timeQuery(
+        'recentReminders',
+        supabase
+          .from('reminders')
+          .select('id, reminder_stage, channel, status, scheduled_at, member_id')
+          .order('scheduled_at', { ascending: false })
+          .limit(5),
+      ),
 
       // 11-14. Server-side reminder counts (HEAD queries - 0 rows transferred)
-      supabase
-        .from('reminders')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'scheduled'),
-      supabase
-        .from('reminders')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['sent', 'delivered']),
-      supabase
-        .from('reminders')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'failed'),
-      supabase.from('reminders').select('*', { count: 'exact', head: true }),
+      timeQuery(
+        'scheduledReminders',
+        supabase
+          .from('reminders')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'scheduled'),
+      ),
+      timeQuery(
+        'sentDeliveredReminders',
+        supabase
+          .from('reminders')
+          .select('*', { count: 'exact', head: true })
+          .in('status', ['sent', 'delivered']),
+      ),
+      timeQuery(
+        'failedReminders',
+        supabase
+          .from('reminders')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'failed'),
+      ),
+      timeQuery(
+        'totalReminders',
+        supabase.from('reminders').select('*', { count: 'exact', head: true }),
+      ),
     ])
+
+    const phase1Total = Math.round(performance.now() - phase1Start)
+    console.log(`[DashboardTiming] phase1Total: ${phase1Total}ms`)
 
     // Fail fast if any Phase 1 query errored
     const results = [
@@ -330,6 +394,7 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
     pendingPaymentsAmount = Math.round(pendingPaymentsAmount * 100) / 100
 
     // ── Phase 2: Targeted member lookup for bounded lists ────────────────────
+    const phase2Start = performance.now()
     const renewalsRaw = (
       upcomingRenewalsRes.data ?? []
     ) as unknown as RenewalMembershipRow[]
@@ -351,17 +416,25 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
 
     const memberMap = new Map<string, string>()
     if (neededMemberIds.length > 0) {
-      const membersRes = await supabase
-        .from('members')
-        .select('id, full_name')
-        .in('id', neededMemberIds)
+      const membersRes = await timeQuery(
+        'memberLookup',
+        supabase
+          .from('members')
+          .select('id, full_name')
+          .in('id', neededMemberIds),
+      )
 
       if (membersRes.error) throw membersRes.error
 
       for (const m of (membersRes.data ?? []) as unknown as MemberLookupRow[]) {
         memberMap.set(m.id, m.full_name)
       }
+    } else {
+      console.log('[DashboardTiming] memberLookup: 0ms')
     }
+
+    const phase2Total = Math.round(performance.now() - phase2Start)
+    console.log(`[DashboardTiming] phase2Total: ${phase2Total}ms`)
 
     // ── Build pending payments list with member and plan names ───────────────
     const pendingList = pendingItems.map(p => ({
@@ -419,6 +492,9 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
     }))
 
     // ── Response ─────────────────────────────────────────────────────────────
+    const dashboardTotal = Math.round(performance.now() - dashboardStart)
+    console.log(`[DashboardTiming] dashboardTotal: ${dashboardTotal}ms`)
+
     res.json({
       success: true,
       data: {
@@ -444,6 +520,8 @@ export async function getSummary(_req: Request, res: Response): Promise<void> {
       },
     })
   } catch (err) {
+    const dashboardTotal = Math.round(performance.now() - dashboardStart)
+    console.log(`[DashboardTiming] dashboardTotal (failed): ${dashboardTotal}ms`)
     console.error('[dashboardController] getSummary error', err)
     res.status(500).json({
       success: false,
