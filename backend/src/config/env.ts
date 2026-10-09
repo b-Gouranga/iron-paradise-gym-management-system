@@ -19,8 +19,34 @@ export const env = {
   metaWhatsAppPhoneNumberId: process.env.META_WHATSAPP_PHONE_NUMBER_ID || '',
   metaWhatsAppBusinessAccountId: process.env.META_WHATSAPP_BUSINESS_ACCOUNT_ID || '',
   metaWhatsAppApiVersion: process.env.META_WHATSAPP_API_VERSION || 'v25.0',
-  metaWhatsAppVerifyToken: process.env.META_WHATSAPP_VERIFY_TOKEN || 'iron_paradise_verify_token_default',
-  metaWhatsAppAppSecret: process.env.META_WHATSAPP_APP_SECRET || 'iron_paradise_app_secret_default',
+  get metaWebhookVerifyToken(): string {
+    return (
+      process.env.META_WEBHOOK_VERIFY_TOKEN ||
+      process.env.META_WHATSAPP_VERIFY_TOKEN ||
+      ''
+    )
+  },
+  get metaWhatsAppVerifyToken(): string {
+    return (
+      process.env.META_WEBHOOK_VERIFY_TOKEN ||
+      process.env.META_WHATSAPP_VERIFY_TOKEN ||
+      ''
+    )
+  },
+  get metaAppSecret(): string {
+    return (
+      process.env.META_APP_SECRET ||
+      process.env.META_WHATSAPP_APP_SECRET ||
+      ''
+    )
+  },
+  get metaWhatsAppAppSecret(): string {
+    return (
+      process.env.META_APP_SECRET ||
+      process.env.META_WHATSAPP_APP_SECRET ||
+      ''
+    )
+  },
   /** Maximum number of scheduled reminders processed per worker run (default 50). */
   reminderBatchSize: Math.max(1, Number(process.env.REMINDER_BATCH_SIZE) || 50),
 }

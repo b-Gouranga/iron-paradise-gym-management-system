@@ -158,10 +158,10 @@ Custom template names can be configured in database `message_templates` table or
 
 Meta WhatsApp sends real-time status callbacks (`sent`, `delivered`, `read`, `failed`):
 
-1. **Webhook URL**: `https://<your-domain>/api/webhooks/whatsapp`
-2. **Verify Token**: Must match `META_WHATSAPP_VERIFY_TOKEN`.
+1. **Webhook URL**: `https://<your-domain>/api/whatsapp/webhook`
+2. **Verify Token**: Must match `META_WEBHOOK_VERIFY_TOKEN` (or `META_WHATSAPP_VERIFY_TOKEN`).
 3. **Subscribed Webhook Fields**: Check `messages`.
-4. **Signature Verification**: Every incoming webhook payload is cryptographically verified against `X-Hub-Signature-256` using HMAC-SHA256 with `META_WHATSAPP_APP_SECRET`. Requests with missing or invalid signatures are rejected with HTTP 401.
+4. **Signature Verification**: Every incoming webhook payload is cryptographically verified against `X-Hub-Signature-256` using HMAC-SHA256 with `META_APP_SECRET` (or `META_WHATSAPP_APP_SECRET`) when configured. Requests with invalid signatures are rejected with HTTP 401.
 
 ### 4. Member WhatsApp Opt-In & Privacy
 

@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/scripts/verifyWhatsAppConfig.ts",
+    "test": "tsx src/scripts/testWhatsAppWebhook.ts",
+    "test:webhook": "tsx src/scripts/testWhatsAppWebhook.ts",
     "whatsapp:verify": "tsx src/scripts/verifyWhatsAppConfig.ts",
     "worker:reminders": "tsx src/workers/reminderWorker.ts"
   },
