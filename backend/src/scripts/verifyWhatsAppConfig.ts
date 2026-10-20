@@ -1,5 +1,6 @@
 import { env } from '../config/env.js'
 import {
+  buildHelloWorldTestTemplate,
   buildJaspersMarketTestTemplate,
   mapToMetaTemplate,
 } from '../services/notifications/metaTemplateMapper.js'
@@ -112,14 +113,15 @@ export async function runVerification(options?: { sendToPhone?: string }): Promi
   }
 
   // Verify test template builder
-  const sandboxTestTemplate = buildJaspersMarketTestTemplate(dummyContext)
+  const helloWorldTemplate = buildHelloWorldTestTemplate()
   if (
-    sandboxTestTemplate.name === 'jaspers_market_order_confirmation_v1' &&
-    sandboxTestTemplate.components[0]?.parameters?.length === 3
+    helloWorldTemplate.name === 'hello_world' &&
+    helloWorldTemplate.language.code === 'en_US' &&
+    !helloWorldTemplate.components
   ) {
-    console.log('  ✓ Meta sandbox test template ("jaspers_market_order_confirmation_v1") verified.')
+    console.log('  ✓ Meta test template ("hello_world") verified.')
   } else {
-    console.error('  [!] Failed to verify Meta sandbox test template structure.')
+    console.error('  [!] Failed to verify Meta test template ("hello_world") structure.')
     hasErrors = true
   }
 
@@ -180,10 +182,10 @@ export async function runVerification(options?: { sendToPhone?: string }): Promi
       console.error('  [!] Cannot dispatch test message: Meta credentials are not valid/verified.')
     } else {
       console.log(`  Target Recipient:            "${options.sendToPhone}"`)
-      console.log('  Meta Test Template:          "jaspers_market_order_confirmation_v1" (pre-approved in Meta WABA)')
+      console.log('  Meta Test Template:          "hello_world" (Active Meta Default)')
       console.log('  Production Templates:        Preserved for Iron Paradise Gym approved stages')
 
-      const testTemplate = buildJaspersMarketTestTemplate(dummyContext)
+      const testTemplate = buildHelloWorldTestTemplate()
       const provider = new MetaWhatsAppProvider()
       const sendResult = await provider.send({
         memberId: 'test-verification-member',
@@ -191,7 +193,7 @@ export async function runVerification(options?: { sendToPhone?: string }): Promi
         channel: 'whatsapp',
         reminderStage: 'membership_expiry_7_days',
         scheduledAt: new Date().toISOString(),
-        message: "Order confirmed: Jasper's Market test message",
+        message: 'Hello World test message',
         templateContext: dummyContext,
         metaTemplatePayload: testTemplate,
       })

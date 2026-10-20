@@ -8,7 +8,7 @@ export interface MetaTemplateParameter {
 export interface MetaTemplatePayload {
   name: string
   language: { code: string }
-  components: Array<{
+  components?: Array<{
     type: 'body'
     parameters: MetaTemplateParameter[]
   }>
@@ -105,6 +105,19 @@ export function mapToMetaTemplate(
         },
       ],
     },
+  }
+}
+
+/**
+ * Constructs Meta's universal test template payload for hello_world (0 parameters).
+ * Pre-approved and active on all Meta WhatsApp Business Accounts.
+ */
+export function buildHelloWorldTestTemplate(
+  languageCode = 'en_US',
+): MetaTemplatePayload {
+  return {
+    name: 'hello_world',
+    language: { code: languageCode },
   }
 }
 
