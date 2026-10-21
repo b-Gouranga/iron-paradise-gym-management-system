@@ -28,7 +28,7 @@ export type MetaTemplateMappingResult =
 export function mapToMetaTemplate(
   stage: ReminderStage,
   context?: TemplateContext,
-  languageCode = 'en_US',
+  languageCode = process.env.META_TEMPLATE_LANGUAGE || 'en',
 ): MetaTemplateMappingResult {
   if (!context) {
     return {
