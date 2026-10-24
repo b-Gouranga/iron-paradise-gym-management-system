@@ -13,6 +13,7 @@ export type ReminderChannel = 'whatsapp' | 'sms'
 
 export type ReminderStatus =
   | 'scheduled'
+  | 'processing'
   | 'sent'
   | 'delivered'
   | 'read'

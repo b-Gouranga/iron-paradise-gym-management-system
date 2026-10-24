@@ -15,7 +15,9 @@ import {
 } from '../services/reminders/templateEngine.js'
 import {
   isMembershipActive,
+  isMembershipExpired,
   selectCurrentMembership,
+  selectLatestExpiredMembership,
 } from '../utils/membershipStatus.js'
 import type {
   MessageHistoryRow,
@@ -775,7 +777,7 @@ export async function manualSendReminder(req: Request, res: Response): Promise<v
 
     const memberships = (rawMemberships ?? []) as any[]
 
-    // 3. Resolve active membership using centralized lifecycle logic
+    // 3. Resolve target membership using centralized lifecycle logic
     let targetMembership: any = null
 
     if (providedMembershipId) {
@@ -800,25 +802,63 @@ export async function manualSendReminder(req: Request, res: Response): Promise<v
         return
       }
 
-      if (!isMembershipActive(found)) {
-        res.status(400).json({
-          success: false,
-          message: 'This member does not have an active membership.',
-        })
-        return
+      if (reminderStage === 'membership_expired') {
+        const hasActive = memberships.some(m => isMembershipActive(m))
+        if (hasActive) {
+          res.status(400).json({
+            success: false,
+            message: 'Member has an active membership; cannot send an expired membership reminder.',
+          })
+          return
+        }
+
+        if (!isMembershipExpired(found)) {
+          res.status(400).json({
+            success: false,
+            message: 'This membership is not expired.',
+          })
+          return
+        }
+      } else {
+        if (!isMembershipActive(found)) {
+          res.status(400).json({
+            success: false,
+            message: 'This member does not have an active membership.',
+          })
+          return
+        }
       }
 
       targetMembership = found
     } else {
-      targetMembership = selectCurrentMembership(memberships)
-    }
+      if (reminderStage === 'membership_expired') {
+        const hasActive = memberships.some(m => isMembershipActive(m))
+        if (hasActive) {
+          res.status(400).json({
+            success: false,
+            message: 'Member has an active membership; cannot send an expired membership reminder.',
+          })
+          return
+        }
 
-    if (!targetMembership) {
-      res.status(400).json({
-        success: false,
-        message: 'This member does not have an active membership.',
-      })
-      return
+        targetMembership = selectLatestExpiredMembership(memberships)
+        if (!targetMembership) {
+          res.status(400).json({
+            success: false,
+            message: 'This member does not have an expired membership.',
+          })
+          return
+        }
+      } else {
+        targetMembership = selectCurrentMembership(memberships)
+        if (!targetMembership) {
+          res.status(400).json({
+            success: false,
+            message: 'This member does not have an active membership.',
+          })
+          return
+        }
+      }
     }
 
     // Validate that the resolved membership actually belongs to the requested member

@@ -13,6 +13,7 @@ export type ReminderChannel = 'whatsapp' | 'sms'
 
 export type ReminderStatus =
   | 'scheduled'
+  | 'processing'
   | 'sent'
   | 'delivered'
   | 'read'
@@ -51,6 +52,9 @@ export interface ReminderRow {
   channel: ReminderChannel
   scheduled_at: string
   status: ReminderStatus
+  claim_token?: string | null
+  claim_expires_at?: string | null
+  failure_reason?: string | null
   created_at: string
   updated_at: string
 }

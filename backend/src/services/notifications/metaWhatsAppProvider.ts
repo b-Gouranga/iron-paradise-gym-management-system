@@ -171,9 +171,9 @@ export class MetaWhatsAppProvider implements NotificationProvider {
       return {
         success: false,
         status: 'failed',
-        providerMessageId: `meta-network-err-${Date.now()}`,
+        providerMessageId: `meta-ambiguous-${Date.now()}`,
         sentAt: null,
-        failureReason: `Network error dispatching to Meta WhatsApp Cloud API: ${this.sanitizeErrorMessage(err?.message || 'Unknown network failure')}`,
+        failureReason: `[AMBIGUOUS_TIMEOUT] Network error dispatching to Meta WhatsApp Cloud API: ${this.sanitizeErrorMessage(err?.message || 'Unknown network failure')}`,
         isSimulated: false,
       }
     }

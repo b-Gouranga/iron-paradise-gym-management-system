@@ -13,6 +13,7 @@ import type {
 
 export interface DispatchReminderInput {
   reminderId?: string | null
+  claimToken?: string | null
   memberId: string
   membershipId: string
   reminderStage: ReminderStage
@@ -135,16 +136,27 @@ export class NotificationService {
 
     // 4. Update the reminder row status if reminderId is provided
     if (input.reminderId) {
-      const { error: reminderUpdateErr } = await supabase
+      let updateQuery = supabase
         .from('reminders')
         .update({
           status: providerResult.status,
+          failure_reason: providerResult.failureReason ?? null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', input.reminderId)
 
+      if (input.claimToken) {
+        updateQuery = updateQuery.eq('claim_token', input.claimToken)
+      }
+
+      const { data: updatedRem, error: reminderUpdateErr } = await updateQuery.select('id')
+
       if (reminderUpdateErr) {
         console.error('[NotificationService] Failed to update reminder status:', reminderUpdateErr)
+      } else if (input.claimToken && (!updatedRem || updatedRem.length === 0)) {
+        console.warn(
+          `[NotificationService] Fencing token mismatch for reminder ${input.reminderId}. State was not updated by stale worker.`,
+        )
       }
     }
 
@@ -191,13 +203,20 @@ export class NotificationService {
       .single()
 
     if (input.reminderId) {
-      await supabase
+      let updateQuery = supabase
         .from('reminders')
         .update({
           status: 'failed',
+          failure_reason: reason,
           updated_at: new Date().toISOString(),
         })
         .eq('id', input.reminderId)
+
+      if (input.claimToken) {
+        updateQuery = updateQuery.eq('claim_token', input.claimToken)
+      }
+
+      await updateQuery
     }
 
     return {

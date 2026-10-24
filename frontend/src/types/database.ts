@@ -15,7 +15,7 @@ export type ReminderStage =
   | 'payment_due'
   | 'payment_overdue'
 export type NotificationChannel = 'whatsapp' | 'sms'
-export type ReminderStatus = 'scheduled' | 'sent' | 'delivered' | 'failed' | 'cancelled'
+export type ReminderStatus = 'scheduled' | 'processing' | 'sent' | 'delivered' | 'read' | 'failed' | 'cancelled'
 
 export interface Database {
   public: {

@@ -141,6 +141,34 @@ export function selectCurrentMembership<T extends {
 }
 
 /**
+ * Selects the latest genuinely expired membership deterministically:
+ * - excludes cancelled memberships (via isMembershipExpired)
+ * - only selects memberships whose expiry_date is strictly earlier than today's date
+ * - chooses the expired membership with the latest expiry_date
+ * - if expiry dates tie, chooses the latest start_date
+ * - if still tied, uses created_at as a deterministic tie-breaker where available
+ * - returns null when no expired membership exists
+ */
+export function selectLatestExpiredMembership<T extends {
+  status: string
+  expiry_date: string
+  start_date?: string
+  created_at?: string
+}>(memberships: T[], today: string = isoDate()): T | null {
+  const expiredMemberships = memberships.filter(m => isMembershipExpired(m, today))
+  if (expiredMemberships.length === 0) return null
+
+  return expiredMemberships.reduce((best, cur) => {
+    if (cur.expiry_date > best.expiry_date) return cur
+    if (cur.expiry_date < best.expiry_date) return best
+    if (cur.start_date && best.start_date && cur.start_date > best.start_date) return cur
+    if (cur.start_date && best.start_date && cur.start_date < best.start_date) return best
+    if (cur.created_at && best.created_at && cur.created_at > best.created_at) return cur
+    return best
+  })
+}
+
+/**
  * Determines if a membership is eligible for Pending Dues calculation.
  *
  * Approved Business Rule:

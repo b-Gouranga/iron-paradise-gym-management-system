@@ -413,6 +413,104 @@ export async function generateReminders(): Promise<ReminderGenerationResult> {
   }
 }
 
+export const CLAIM_LEASE_DURATION_MS = 5 * 60 * 1000 // 5 minutes
+
+export interface ClaimResult {
+  claimed: boolean
+  token: string | null
+  reason?: string
+}
+
+/**
+ * Attempts an atomic database-backed claim on a reminder before dispatch.
+ * Uses conditional UPDATE to guarantee that only one worker can process a given reminder.
+ *
+ * Supported claim transitions:
+ * 1. Initial dispatch: status='scheduled' -> status='processing'
+ * 2. Safe retry of confirmed failure: status='failed' -> status='processing'
+ * 3. Stale lease recovery (un-dispatched crashed worker): status='processing' AND claim_expires_at < now()
+ *
+ * Prevents stale workers from overwriting newer worker state by returning a fencing token (UUID)
+ * that must be verified when finalizing the outcome.
+ */
+export async function claimReminder(
+  supabase: any,
+  rem: ReminderRow,
+  options?: { leaseDurationMs?: number },
+): Promise<ClaimResult> {
+  const leaseMs = options?.leaseDurationMs ?? CLAIM_LEASE_DURATION_MS
+  const token = `claim-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + leaseMs).toISOString()
+  const nowIso = now.toISOString()
+
+  try {
+    let updateQuery = supabase
+      .from('reminders')
+      .update({
+        status: 'processing',
+        claim_token: token,
+        claim_expires_at: expiresAt,
+        updated_at: nowIso,
+      })
+      .eq('id', rem.id)
+
+    if (rem.status === 'scheduled') {
+      updateQuery = updateQuery.eq('status', 'scheduled')
+    } else if (rem.status === 'failed') {
+      updateQuery = updateQuery.eq('status', 'failed')
+    } else if (rem.status === 'processing') {
+      updateQuery = updateQuery
+        .eq('status', 'processing')
+        .lt('claim_expires_at', nowIso)
+    } else {
+      return {
+        claimed: false,
+        token: null,
+        reason: `Reminder is in non-claimable status: ${rem.status}`,
+      }
+    }
+
+    const { data, error } = await updateQuery.select('id, claim_token')
+
+    if (error) {
+      if (error.code === '23514' || error.message?.includes('reminders_status_check')) {
+        console.warn(
+          '[ReminderEngine] Atomic claim failed: Migration 008 is required to allow status "processing". Automated dispatch paused for this item.',
+        )
+        return {
+          claimed: false,
+          token: null,
+          reason: 'MIGRATION_REQUIRED: status check constraint (migration 008 pending)',
+        }
+      }
+      if (error.code === '42703' || error.message?.includes('claim_token')) {
+        console.warn(
+          '[ReminderEngine] Atomic claim failed: Migration 008 is required for claim_token columns. Automated dispatch paused for this item.',
+        )
+        return {
+          claimed: false,
+          token: null,
+          reason: 'MIGRATION_REQUIRED: column does not exist (migration 008 pending)',
+        }
+      }
+      return { claimed: false, token: null, reason: error.message }
+    }
+
+    if (!data || data.length === 0) {
+      return {
+        claimed: false,
+        token: null,
+        reason: 'RACE_LOST: Reminder was already claimed or modified by another worker.',
+      }
+    }
+
+    return { claimed: true, token }
+  } catch (err: any) {
+    return { claimed: false, token: null, reason: err?.message || 'Unexpected claim error' }
+  }
+}
+
 /**
  * Processes scheduled reminders that are ready to send.
  *
@@ -420,6 +518,11 @@ export async function generateReminders(): Promise<ReminderGenerationResult> {
  * Enforces batchSize to cap per-run volume for cost control.
  * Enforces max_retries per stage: skips reminders that have already been
  * retried >= max_retries times today (checked via message_history count).
+ *
+ * Concurrency Safety:
+ * - Atomically claims each reminder into 'processing' with a fencing claim token.
+ * - Confirmed rejections are eligible for retry; ambiguous network timeouts are strictly barred.
+ * - Stale claims (>5 min lease) are recovered only if not ambiguous.
  */
 export async function processReminders(options?: {
   reminderId?: string
@@ -438,14 +541,38 @@ export async function processReminders(options?: {
     .select('*')
     .limit(batchSize)
 
+  let scheduledReminders: any[] | null = null
+  let fetchErr: any = null
+
   if (options?.reminderId) {
-    query = query.eq('id', options.reminderId)
+    const res = await query.eq('id', options.reminderId)
+    scheduledReminders = res.data
+    fetchErr = res.error
   } else {
-    // Process scheduled reminders, as well as failed reminders from today that are eligible for retry
-    query = query.or(`status.eq.scheduled,and(status.eq.failed,scheduled_at.gte.${todayStart})`)
+    const nowIso = new Date().toISOString()
+    const resWithProcessing = await query.or(
+      `status.eq.scheduled,and(status.eq.failed,scheduled_at.gte.${todayStart}),and(status.eq.processing,claim_expires_at.lt.${nowIso})`,
+    )
+
+    if (
+      resWithProcessing.error &&
+      (resWithProcessing.error.message?.includes('claim_expires_at') ||
+        resWithProcessing.error.code === '42703')
+    ) {
+      // Graceful fallback if migration 008 is not yet applied
+      const resFallback = await supabase
+        .from('reminders')
+        .select('*')
+        .limit(batchSize)
+        .or(`status.eq.scheduled,and(status.eq.failed,scheduled_at.gte.${todayStart})`)
+      scheduledReminders = resFallback.data
+      fetchErr = resFallback.error
+    } else {
+      scheduledReminders = resWithProcessing.data
+      fetchErr = resWithProcessing.error
+    }
   }
 
-  const { data: scheduledReminders, error: fetchErr } = await query
   if (fetchErr) throw fetchErr
 
   const remRows = (scheduledReminders ?? []) as ReminderRow[]
@@ -489,11 +616,11 @@ export async function processReminders(options?: {
             .select('*')
             .in('reminder_stage', uniqueStages)
         : { data: [], error: null },
-      // Fetch today's message_history to enforce max_retries — only for reminders we're about to process
+      // Fetch today's message_history to enforce max_retries and inspect failure reasons
       remRows.length > 0
         ? supabase
             .from('message_history')
-            .select('reminder_id, status, created_at')
+            .select('reminder_id, status, created_at, failure_reason')
             .in('reminder_id', remRows.map(r => r.id))
             .gte('created_at', todayStart)
         : { data: [], error: null },
@@ -543,11 +670,19 @@ export async function processReminders(options?: {
     maxRetriesMap.set(s.reminder_stage, Number(s.max_retries ?? 1))
   }
 
-  // Count today's attempts per reminder_id from message_history
+  // Count today's attempts and inspect latest history per reminder_id
   const todayAttemptsMap = new Map<string, number>()
-  for (const h of (historyRes.data ?? []) as unknown as Array<{ reminder_id: string | null; status: string; created_at: string }>) {
+  const latestHistoryMap = new Map<
+    string,
+    { status: string; failure_reason: string | null; created_at: string }
+  >()
+  for (const h of (historyRes.data ?? []) as unknown as Array<{ reminder_id: string | null; status: string; created_at: string; failure_reason: string | null }>) {
     if (!h.reminder_id) continue
     todayAttemptsMap.set(h.reminder_id, (todayAttemptsMap.get(h.reminder_id) ?? 0) + 1)
+    const existing = latestHistoryMap.get(h.reminder_id)
+    if (!existing || h.created_at > existing.created_at) {
+      latestHistoryMap.set(h.reminder_id, h)
+    }
   }
 
   let sentCount = 0
@@ -562,22 +697,50 @@ export async function processReminders(options?: {
       continue
     }
 
-    // Enforce max_retries:
-    // Initial attempt: attemptsToday = 0 (allowed)
-    // First retry: attemptsToday = 1 (allowed when max_retries = 1)
-    // Further retries: attemptsToday > maxRetries (blocked)
+    // Enforce max_retries and eligibility:
     if (!options?.reminderId) {
-      if (rem.status === 'sent' || rem.status === 'delivered' || rem.status === 'cancelled') {
+      if (
+        rem.status === 'sent' ||
+        rem.status === 'delivered' ||
+        rem.status === 'read' ||
+        rem.status === 'cancelled'
+      ) {
         continue
       }
       if (rem.status === 'failed' && rem.scheduled_at < todayStart) {
         continue
       }
+
+      // Check whether this reminder had an ambiguous network timeout.
+      // An ambiguous Meta API outcome must NEVER be automatically resent
+      // merely because a lease expired. Keep it pending reconciliation or manual decision.
+      const latestHistory = latestHistoryMap.get(rem.id)
+      const isAmbiguousTimeout =
+        Boolean(rem.failure_reason?.includes('[AMBIGUOUS_TIMEOUT]')) ||
+        Boolean(latestHistory?.failure_reason?.includes('[AMBIGUOUS_TIMEOUT]'))
+
+      if (isAmbiguousTimeout) {
+        console.warn(
+          `[ReminderEngine] Reminder ${rem.id} has an ambiguous timeout outcome. Automatic retry blocked; manual verification required.`,
+        )
+        continue
+      }
+
       const maxRetries = maxRetriesMap.get(rem.reminder_stage) ?? 1
       const attemptsToday = todayAttemptsMap.get(rem.id) ?? 0
       if (attemptsToday > maxRetries) {
         continue
       }
+    }
+
+    // Atomic Database-Backed Claim
+    const claimRes = await claimReminder(supabase, rem)
+    if (!claimRes.claimed) {
+      // Concurrency race lost or migration pending
+      console.log(
+        `[ReminderEngine] Skipped reminder ${rem.id}: ${claimRes.reason || 'Could not acquire atomic claim.'}`,
+      )
+      continue
     }
 
     const planName = ms?.plan_name ?? 'Membership'
@@ -603,6 +766,7 @@ export async function processReminders(options?: {
 
     const dispatchRes = await notificationService.dispatchReminder({
       reminderId: rem.id,
+      claimToken: claimRes.token,
       memberId: rem.member_id,
       membershipId: rem.membership_id,
       reminderStage: rem.reminder_stage,
