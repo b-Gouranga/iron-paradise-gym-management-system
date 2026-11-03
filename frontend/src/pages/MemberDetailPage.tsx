@@ -14,6 +14,7 @@ import {
   Phone,
   Plus,
   RotateCcw,
+  User,
   UserX,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -262,6 +263,14 @@ export function MemberDetailPage() {
                 <div>
                   <p className="text-xs text-zinc-500">Email</p>
                   <p className="font-medium text-white">{member.email || '—'}</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3 rounded-lg border border-white/[.05] bg-white/[.02] p-3">
+                <User size={16} className="mt-0.5 text-zinc-500" />
+                <div>
+                  <p className="text-xs text-zinc-500">Gender</p>
+                  <p className="font-medium text-white">{member.gender || '—'}</p>
                 </div>
               </div>
 

@@ -257,7 +257,7 @@ export async function listMembers(req: Request, res: Response): Promise<void> {
     let query = supabase
       .from('members')
       .select(
-        'id, member_code, full_name, phone, email, status, joining_date, created_at, notes',
+        'id, member_code, full_name, phone, email, status, joining_date, created_at, notes, gender',
         { count: 'exact' },
       )
 
@@ -289,6 +289,17 @@ export async function listMembers(req: Request, res: Response): Promise<void> {
       .range(offset, offset + limitNum - 1)
 
     const { data: members, count, error } = await query
+    if (
+      error &&
+      (error.message?.includes('gender') ||
+        ((error as { code?: string }).code === '42703' && error.message?.includes('gender')))
+    ) {
+      res.status(500).json({
+        success: false,
+        message: 'Database schema migration required: the gender column is missing from public.members. Please apply migration 009.',
+      })
+      return
+    }
     if (error) throw error
 
     // ── Attach most-recent membership per member ───────────────────────────
@@ -298,6 +309,7 @@ export async function listMembers(req: Request, res: Response): Promise<void> {
 
     const enriched = (members ?? []).map(m => ({
       ...m,
+      gender: (m as any).gender ?? 'Male',
       whatsapp_opt_in: Boolean(
         (m as any).whatsapp_opt_in ?? ((m as any).notes && (m as any).notes.includes('[opt_in:whatsapp]')),
       ),
@@ -369,6 +381,7 @@ export async function getMember(req: Request, res: Response): Promise<void> {
       success: true,
       data: {
         ...member,
+        gender: (member as any).gender ?? 'Male',
         whatsapp_opt_in: Boolean(
           (member as any).whatsapp_opt_in ?? (member.notes && member.notes.includes('[opt_in:whatsapp]')),
         ),
@@ -432,6 +445,18 @@ export async function createMember(req: Request, res: Response): Promise<void> {
   const dob = body.date_of_birth ? String(body.date_of_birth).trim() || null : null
   if (dob && !validateDate(dob)) errors.push('Date of birth must be a valid date (YYYY-MM-DD).')
 
+  let gender: 'Male' | 'Female' = 'Male'
+  if (body.gender !== undefined) {
+    const g = String(body.gender).trim()
+    if (!g) {
+      errors.push('Gender is required.')
+    } else if (g !== 'Male' && g !== 'Female') {
+      errors.push('Gender must be either Male or Female.')
+    } else {
+      gender = g as 'Male' | 'Female'
+    }
+  }
+
   if (errors.length > 0) {
     res.status(400).json({ success: false, message: errors.join(' ') })
     return
@@ -458,6 +483,7 @@ export async function createMember(req: Request, res: Response): Promise<void> {
         full_name: fullName,
         phone,
         email,
+        gender,
         address: body.address ? String(body.address).trim() || null : null,
         date_of_birth: dob,
         joining_date: joiningDate,
@@ -471,6 +497,18 @@ export async function createMember(req: Request, res: Response): Promise<void> {
         .insert(insertPayload)
         .select()
         .single()
+
+      if (
+        error &&
+        (error.message?.includes('gender') ||
+          ((error as { code?: string }).code === '42703' && error.message?.includes('gender')))
+      ) {
+        res.status(500).json({
+          success: false,
+          message: 'Database schema migration required: the gender column is missing from public.members. Please apply migration 009.',
+        })
+        return
+      }
 
       if (
         error &&
@@ -518,6 +556,7 @@ export async function createMember(req: Request, res: Response): Promise<void> {
           full_name: newMember.full_name,
           phone: newMember.phone,
           status: newMember.status,
+          gender: newMember.gender ?? gender,
           whatsapp_opt_in: whatsappOptIn,
         },
       })
@@ -527,6 +566,7 @@ export async function createMember(req: Request, res: Response): Promise<void> {
       success: true,
       data: {
         ...newMember,
+        gender: newMember.gender ?? gender,
         whatsapp_opt_in: Boolean(
           (newMember as any).whatsapp_opt_in ?? (newMember.notes && newMember.notes.includes('[opt_in:whatsapp]')),
         ),
@@ -560,16 +600,16 @@ export async function updateMember(req: Request, res: Response): Promise<void> {
   // Whitelist of editable fields
   const EDITABLE = [
     'full_name', 'phone', 'email', 'address',
-    'date_of_birth', 'joining_date', 'notes', 'status', 'whatsapp_opt_in',
+    'date_of_birth', 'joining_date', 'notes', 'status', 'whatsapp_opt_in', 'gender',
   ] as const
 
   const updates: Record<string, unknown> = {}
   for (const field of EDITABLE) {
     if (field in body) {
       const v = body[field]
-      // Normalise empty strings to null for nullable fields
+      // Normalise empty strings to null for nullable fields (not gender, full_name, phone, joining_date)
       updates[field] =
-        typeof v === 'string' && v.trim() === '' && field !== 'full_name' && field !== 'phone' && field !== 'joining_date'
+        typeof v === 'string' && v.trim() === '' && field !== 'full_name' && field !== 'phone' && field !== 'joining_date' && field !== 'gender'
           ? null
           : v
     }
@@ -617,6 +657,18 @@ export async function updateMember(req: Request, res: Response): Promise<void> {
   if ('whatsapp_opt_in' in updates) {
     updates.whatsapp_opt_in = updates.whatsapp_opt_in === true || updates.whatsapp_opt_in === 'true'
   }
+  if ('gender' in updates) {
+    const v = String(updates.gender ?? '').trim()
+    if (!v) {
+      res.status(400).json({ success: false, message: 'Gender cannot be empty.' })
+      return
+    }
+    if (v !== 'Male' && v !== 'Female') {
+      res.status(400).json({ success: false, message: 'Gender must be either Male or Female.' })
+      return
+    }
+    updates.gender = v
+  }
 
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ success: false, message: 'No valid fields to update.' })
@@ -650,6 +702,18 @@ export async function updateMember(req: Request, res: Response): Promise<void> {
       .eq('id', id)
       .select()
       .single()
+
+    if (
+      error &&
+      (error.message?.includes('gender') ||
+        ((error as { code?: string }).code === '42703' && error.message?.includes('gender')))
+    ) {
+      res.status(500).json({
+        success: false,
+        message: 'Database schema migration required: the gender column is missing from public.members. Please apply migration 009.',
+      })
+      return
+    }
 
     if (
       error &&
@@ -696,6 +760,7 @@ export async function updateMember(req: Request, res: Response): Promise<void> {
       success: true,
       data: {
         ...updated,
+        gender: updated.gender ?? (updates.gender as 'Male' | 'Female') ?? 'Male',
         whatsapp_opt_in: Boolean(
           (updated as any).whatsapp_opt_in ?? (updated.notes && updated.notes.includes('[opt_in:whatsapp]')),
         ),

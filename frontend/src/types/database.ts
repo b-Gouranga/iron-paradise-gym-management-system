@@ -36,7 +36,7 @@ export interface Database {
 
 
 export interface ProfileRow { id: string; full_name: string; email: string; phone: string | null; role: ProfileRole; is_active: boolean; created_at: string; updated_at: string }
-export interface MemberRow { id: string; member_code: string; full_name: string; phone: string; email: string | null; address: string | null; date_of_birth: string | null; joining_date: string; notes: string | null; status: MemberStatus; created_at: string; updated_at: string }
+export interface MemberRow { id: string; member_code: string; full_name: string; phone: string; email: string | null; address: string | null; date_of_birth: string | null; joining_date: string; notes: string | null; status: MemberStatus; gender: 'Male' | 'Female'; created_at: string; updated_at: string }
 export interface MembershipPlanRow { id: string; name: string; duration_value: number; duration_unit: 'days' | 'months' | 'years'; default_fee: number; description: string | null; is_active: boolean; created_at: string; updated_at: string }
 export interface MembershipRow { id: string; member_id: string; plan_id: string; previous_membership_id: string | null; start_date: string; expiry_date: string; actual_fee: number; payment_due_date: string | null; status: MembershipStatus; created_at: string; updated_at: string }
 export interface PaymentRow { id: string; member_id: string; membership_id: string; amount: number; payment_date: string; payment_method: PaymentMethod; purpose: PaymentPurpose; notes: string | null; created_by: string | null; created_at: string }

@@ -1,4 +1,5 @@
 export type MemberStatus = 'active' | 'inactive'
+export type Gender = 'Male' | 'Female'
 
 export type MemberFilter =
   | 'all'
@@ -25,6 +26,7 @@ export interface MemberListItem {
   joining_date: string
   created_at: string
   whatsapp_opt_in?: boolean
+  gender?: Gender
   current_membership: MembershipSummary | null
 }
 
@@ -52,6 +54,7 @@ export interface MemberDetail {
   created_at: string
   updated_at: string
   whatsapp_opt_in?: boolean
+  gender: Gender
   current_membership: CurrentMembershipDetail | null
 }
 
@@ -66,6 +69,7 @@ export interface MembersListResponse {
 export interface CreateMemberPayload {
   full_name: string
   phone: string
+  gender: Gender
   email?: string | null
   address?: string | null
   date_of_birth?: string | null
@@ -77,6 +81,7 @@ export interface CreateMemberPayload {
 export interface UpdateMemberPayload {
   full_name?: string
   phone?: string
+  gender?: Gender
   email?: string | null
   address?: string | null
   date_of_birth?: string | null

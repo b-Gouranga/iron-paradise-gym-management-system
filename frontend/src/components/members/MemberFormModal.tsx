@@ -4,7 +4,7 @@ import { Button } from '../Button'
 import { Input } from '../Input'
 import { useAuth } from '../../hooks/useAuth'
 import { createMember, updateMember } from '../../services/membersService'
-import type { MemberDetail, MemberStatus } from '../../types/members'
+import type { Gender, MemberDetail, MemberStatus } from '../../types/members'
 
 interface MemberFormModalProps {
   isOpen: boolean
@@ -27,6 +27,7 @@ export function MemberFormModal({
   const isEdit = Boolean(member)
 
   const [fullName, setFullName] = useState('')
+  const [gender, setGender] = useState<Gender>('Male')
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [address, setAddress] = useState('')
@@ -43,6 +44,7 @@ export function MemberFormModal({
   useEffect(() => {
     if (member) {
       setFullName(member.full_name ?? '')
+      setGender(member.gender ?? 'Male')
       setPhone(member.phone ?? '')
       setEmail(member.email ?? '')
       setAddress(member.address ?? '')
@@ -53,6 +55,7 @@ export function MemberFormModal({
       setWhatsappOptIn(Boolean(member.whatsapp_opt_in))
     } else {
       setFullName('')
+      setGender('Male')
       setPhone('')
       setEmail('')
       setAddress('')
@@ -80,6 +83,10 @@ export function MemberFormModal({
       setError('Full name is required.')
       return
     }
+    if (!gender || (gender !== 'Male' && gender !== 'Female')) {
+      setError('Gender is required.')
+      return
+    }
     if (!trimmedPhone) {
       setError('Phone number is required.')
       return
@@ -104,6 +111,7 @@ export function MemberFormModal({
       if (isEdit && member) {
         await updateMember(token, member.id, {
           full_name: trimmedName,
+          gender,
           phone: trimmedPhone,
           email: email.trim() || null,
           address: address.trim() || null,
@@ -116,6 +124,7 @@ export function MemberFormModal({
       } else {
         await createMember(token, {
           full_name: trimmedName,
+          gender,
           phone: trimmedPhone,
           email: email.trim() || null,
           address: address.trim() || null,
@@ -189,17 +198,36 @@ export function MemberFormModal({
             </div>
           )}
 
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+              Full Name <span className="text-brand">*</span>
+            </label>
+            <Input
+              required
+              value={fullName}
+              onChange={e => setFullName(e.target.value)}
+              placeholder="e.g. Rahul Sharma"
+            />
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Full Name <span className="text-brand">*</span>
+                Gender <span className="text-brand">*</span>
               </label>
-              <Input
+              <select
                 required
-                value={fullName}
-                onChange={e => setFullName(e.target.value)}
-                placeholder="e.g. Rahul Sharma"
-              />
+                value={gender}
+                onChange={e => setGender(e.target.value as Gender)}
+                className="w-full rounded-lg border border-white/10 bg-white/[.04] px-3.5 py-2.5 text-sm text-white outline-none focus:border-brand/70"
+              >
+                <option value="Male" className="bg-[#1C1C1F] text-white">
+                  Male
+                </option>
+                <option value="Female" className="bg-[#1C1C1F] text-white">
+                  Female
+                </option>
+              </select>
             </div>
 
             <div>

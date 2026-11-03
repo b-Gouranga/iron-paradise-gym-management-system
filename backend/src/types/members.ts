@@ -4,6 +4,7 @@
  */
 
 export type MemberStatus = 'active' | 'inactive'
+export type Gender = 'Male' | 'Female'
 export type MemberFilter =
   | 'all'
   | 'active'
@@ -25,6 +26,7 @@ export interface MemberRow {
   notes: string | null
   status: MemberStatus
   whatsapp_opt_in?: boolean
+  gender: Gender
   created_at: string
   updated_at: string
 }
@@ -32,6 +34,7 @@ export interface MemberRow {
 export interface CreateMemberInput {
   full_name: string
   phone: string
+  gender?: Gender
   email?: string | null
   address?: string | null
   date_of_birth?: string | null
@@ -43,6 +46,7 @@ export interface CreateMemberInput {
 export interface UpdateMemberInput {
   full_name?: string
   phone?: string
+  gender?: Gender
   email?: string | null
   address?: string | null
   date_of_birth?: string | null

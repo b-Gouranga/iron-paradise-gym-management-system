@@ -20,3 +20,7 @@ export function getSupabaseAdmin(): SupabaseClient {
   })
   return adminClient
 }
+
+export function setSupabaseAdmin(client?: SupabaseClient): void {
+  adminClient = client
+}
