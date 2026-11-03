@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '../services/database/supabaseAdmin.js'
 import { logAuditEvent } from '../services/audit/auditService.js'
 import { notificationService } from '../services/notifications/notificationService.js'
 import {
+  claimReminder,
   ensureDefaultSettingsAndTemplates,
   generateReminders,
   processReminders,
@@ -922,8 +923,9 @@ export async function manualSendReminder(req: Request, res: Response): Promise<v
         .eq('reminder_stage', reminderStage)
         .maybeSingle()
 
-      let reminderId = existingReminder?.id
-      if (!reminderId) {
+      let reminderRow: ReminderRow | null = (existingReminder as ReminderRow) ?? null
+
+      if (!reminderRow) {
         const { data: newRem, error: remInsertErr } = await supabase
           .from('reminders')
           .insert({
@@ -934,11 +936,11 @@ export async function manualSendReminder(req: Request, res: Response): Promise<v
             scheduled_at: new Date().toISOString(),
             status: 'scheduled',
           })
-          .select('id')
+          .select('*')
           .maybeSingle()
 
         if (newRem) {
-          reminderId = newRem.id
+          reminderRow = newRem as ReminderRow
         } else if (remInsertErr?.code === '23505') {
           res.status(409).json({
             success: false,
@@ -946,12 +948,24 @@ export async function manualSendReminder(req: Request, res: Response): Promise<v
           })
           return
         }
-      } else if (existingReminder.status === 'failed') {
-        await supabase
-          .from('reminders')
-          .update({ status: 'scheduled', updated_at: new Date().toISOString() })
-          .eq('id', reminderId)
       }
+
+      if (!reminderRow) {
+        res.status(500).json({ success: false, message: 'Failed to resolve reminder record.' })
+        return
+      }
+
+      // Acquire atomic database claim (mutual exclusion with reminder worker)
+      const claimRes = await claimReminder(supabase, reminderRow)
+      if (!claimRes.claimed) {
+        res.status(409).json({
+          success: false,
+          message: 'A reminder request for this member and stage is currently being processed.',
+        })
+        return
+      }
+
+      const reminderId = reminderRow.id
 
       // 5. Compute pending dues
       const { data: payments } = await supabase
@@ -980,6 +994,7 @@ export async function manualSendReminder(req: Request, res: Response): Promise<v
       // 7. Dispatch via NotificationService
       const dispatchRes = await notificationService.dispatchReminder({
         reminderId,
+        claimToken: claimRes.token,
         memberId,
         membershipId: resolvedMembershipId,
         reminderStage: reminderStage as ReminderStage,
