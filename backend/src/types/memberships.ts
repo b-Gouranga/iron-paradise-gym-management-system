@@ -50,6 +50,9 @@ export interface RenewMembershipInput {
 }
 
 export interface UpdateMembershipInput {
+  plan_id?: string
+  start_date?: string
+  actual_fee?: number
   payment_due_date?: string | null
   status?: MembershipStatus
 }

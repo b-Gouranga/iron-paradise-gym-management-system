@@ -25,6 +25,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { ArchiveConfirmDialog } from '../components/members/ArchiveConfirmDialog'
 import { MemberFormModal } from '../components/members/MemberFormModal'
 import { AddMembershipModal } from '../components/memberships/AddMembershipModal'
+import { EditMembershipModal } from '../components/memberships/EditMembershipModal'
 import { RenewMembershipModal } from '../components/memberships/RenewMembershipModal'
 import { RecordPaymentModal } from '../components/payments/RecordPaymentModal'
 import { MemberRemindersCard } from '../components/reminders/MemberRemindersCard'
@@ -113,6 +114,7 @@ export function MemberDetailPage() {
   const [isArchiveOpen, setIsArchiveOpen] = useState(false)
   const [isAddMembershipOpen, setIsAddMembershipOpen] = useState(false)
   const [renewTarget, setRenewTarget] = useState<Membership | null>(null)
+  const [editMembershipTarget, setEditMembershipTarget] = useState<Membership | null>(null)
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false)
   const [recordPaymentMembershipId, setRecordPaymentMembershipId] = useState<string | undefined>(undefined)
   const [isSendReminderOpen, setIsSendReminderOpen] = useState(false)
@@ -550,6 +552,15 @@ export function MemberDetailPage() {
 
                         {/* Action buttons */}
                         <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditMembershipTarget(m)}
+                            className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[.04] px-2.5 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-white/[.08] hover:text-white"
+                            title="Edit this membership"
+                          >
+                            <Edit2 size={12} />
+                            Edit
+                          </button>
                           {isDue && (
                             <button
                               type="button"
@@ -726,6 +737,20 @@ export function MemberDetailPage() {
         onSuccess={handleMembershipSuccess}
         previousMembership={renewTarget}
         memberName={member.full_name}
+      />
+
+      {/* Edit Membership Modal */}
+      <EditMembershipModal
+        isOpen={Boolean(editMembershipTarget)}
+        onClose={() => setEditMembershipTarget(null)}
+        onSuccess={handleMembershipSuccess}
+        membership={editMembershipTarget}
+        memberName={member.full_name}
+        totalPaid={
+          paymentSummary?.memberships_summary.find(
+            s => s.membership_id === editMembershipTarget?.id,
+          )?.total_paid ?? 0
+        }
       />
 
       {/* Record Payment Modal */}

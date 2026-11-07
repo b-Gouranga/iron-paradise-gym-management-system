@@ -577,83 +577,270 @@ export async function renewMembership(req: Request, res: Response): Promise<void
 
 /**
  * PATCH /api/memberships/:id
+/**
+ * PATCH /api/memberships/:id
  *
- * Conservative update endpoint.
+ * Updates an existing membership record.
  *
- * Protects historical financial and date fields:
- * - actual_fee CANNOT be modified here (preserves financial agreement)
- * - start_date, expiry_date CANNOT be modified here (preserves duration agreement)
- * - member_id, previous_membership_id CANNOT be modified
- *
- * Only permitted:
- * - payment_due_date: update due date
- * - status: 'cancelled' (only by Owner role)
+ * Requirements enforced:
+ * - Membership must exist (HTTP 404)
+ * - Cannot edit a cancelled membership (HTTP 400)
+ * - Direct status changes other than cancellation (owner-only) are not permitted (HTTP 400/403)
+ * - Validates submitted fields (plan_id, start_date, actual_fee, payment_due_date)
+ * - Dates must be valid calendar dates (YYYY-MM-DD)
+ * - Recalculates inclusive expiry date server-side if plan_id or start_date changes
+ * - Overlap protection: prevents overlapping active memberships for the member (HTTP 409)
+ * - Payment integrity: actual_fee cannot be less than total already paid (HTTP 400)
+ * - Preserves existing payment records and transaction dates completely unaltered
+ * - Reminder safety: marks obsolete pending scheduled reminders as 'cancelled'
+ * - In-flight processing reminders are safely preserved and not corrupted
+ * - Audit logging: records 'membership_updated' with previousData and newData
  */
 export async function updateMembership(req: Request, res: Response): Promise<void> {
   const { id } = req.params
   const supabase = getSupabaseAdmin()
   const body = req.body as Record<string, unknown>
 
-  const updates: Record<string, unknown> = {}
+  try {
+    // 1. Verify membership exists
+    const { data: existing, error: findErr } = await supabase
+      .from('memberships')
+      .select('*, membership_plans(id, name, duration_value, duration_unit, is_active)')
+      .eq('id', id)
+      .single()
 
-  if ('payment_due_date' in body) {
-    const pdd = body.payment_due_date
-    if (pdd === null || pdd === '') {
-      updates.payment_due_date = null
-    } else if (validateDateString(pdd)) {
-      updates.payment_due_date = pdd
-    } else {
+    if (findErr?.code === 'PGRST116' || !existing) {
+      res.status(404).json({ success: false, message: 'Membership not found.' })
+      return
+    }
+    if (findErr) throw findErr
+
+    // 2. Reject editing if membership is already cancelled
+    if (existing.status === 'cancelled') {
       res.status(400).json({
         success: false,
-        message: 'Payment due date must be in YYYY-MM-DD format or null.',
+        message: 'Cannot edit a cancelled membership.',
       })
       return
     }
-  }
 
-  if ('status' in body) {
-    if (body.status === 'cancelled') {
-      // Check if user is owner
-      if (req.authProfile?.role !== 'owner') {
-        res.status(403).json({
+    // 3. Status checks: do not allow general status edits
+    let isCancelling = false
+    if ('status' in body) {
+      if (body.status === 'cancelled') {
+        if (req.authProfile?.role !== 'owner') {
+          res.status(403).json({
+            success: false,
+            message: 'Only the gym owner can cancel a membership.',
+          })
+          return
+        }
+        isCancelling = true
+      } else {
+        res.status(400).json({
           success: false,
-          message: 'Only the gym owner can cancel a membership.',
+          message: 'Direct status changes other than cancellation are not permitted.',
         })
         return
       }
-      updates.status = 'cancelled'
-    } else {
+    }
+
+    // 4. Validate permitted fields
+    const hasPermittedField =
+      'plan_id' in body ||
+      'start_date' in body ||
+      'actual_fee' in body ||
+      'payment_due_date' in body ||
+      isCancelling
+
+    if (!hasPermittedField) {
       res.status(400).json({
         success: false,
-        message: 'Direct status changes other than cancellation are not permitted.',
+        message: 'No permitted fields provided for update.',
       })
       return
     }
-  }
 
-  if (Object.keys(updates).length === 0) {
-    res.status(400).json({
-      success: false,
-      message: 'No permitted fields provided for update.',
-    })
-    return
-  }
+    const errors: string[] = []
+    let targetPlan = (
+      Array.isArray(existing.membership_plans)
+        ? existing.membership_plans[0]
+        : existing.membership_plans
+    ) as {
+      id: string
+      name: string
+      duration_value: number
+      duration_unit: DurationUnit
+      is_active: boolean
+    } | null
 
-  try {
-    const { data: updated, error } = await supabase
+    let effectivePlanId = existing.plan_id
+    if ('plan_id' in body) {
+      const pId = String(body.plan_id ?? '').trim()
+      if (!pId) {
+        errors.push('Membership plan is required.')
+      } else {
+        const { data: planData, error: planErr } = await supabase
+          .from('membership_plans')
+          .select('id, name, duration_value, duration_unit, is_active')
+          .eq('id', pId)
+          .single()
+
+        if (planErr?.code === 'PGRST116' || !planData) {
+          res.status(404).json({ success: false, message: 'Membership plan not found.' })
+          return
+        }
+        if (planErr) throw planErr
+
+        if (pId !== existing.plan_id && !planData.is_active) {
+          errors.push('Cannot assign an inactive membership plan.')
+        }
+        targetPlan = planData as any
+        effectivePlanId = pId
+      }
+    }
+
+    let effectiveStartDate = existing.start_date
+    if ('start_date' in body) {
+      const sd = body.start_date
+      if (!validateDateString(sd)) {
+        errors.push('Start date must be a valid calendar date in YYYY-MM-DD format.')
+      } else {
+        effectiveStartDate = sd
+      }
+    }
+
+    let effectiveActualFee = Number(existing.actual_fee)
+    if ('actual_fee' in body) {
+      const feeNum = Number(body.actual_fee)
+      if (isNaN(feeNum) || !isFinite(feeNum) || feeNum < 0) {
+        errors.push('Actual fee must be a valid non-negative number.')
+      } else {
+        effectiveActualFee = Math.round(feeNum * 100) / 100
+      }
+    }
+
+    let effectivePaymentDueDate = existing.payment_due_date
+    let paymentDueDateProvided = false
+    if ('payment_due_date' in body) {
+      paymentDueDateProvided = true
+      const pdd = body.payment_due_date
+      if (pdd === null || pdd === '') {
+        effectivePaymentDueDate = null
+      } else if (validateDateString(pdd)) {
+        effectivePaymentDueDate = pdd
+      } else {
+        errors.push('Payment due date must be a valid calendar date in YYYY-MM-DD format or null.')
+      }
+    }
+
+    if (errors.length > 0) {
+      res.status(400).json({ success: false, message: errors.join(' ') })
+      return
+    }
+
+    // 5. Recalculate inclusive expiry date if plan or start_date changed
+    let effectiveExpiryDate = existing.expiry_date
+    if (('plan_id' in body || 'start_date' in body) && targetPlan) {
+      effectiveExpiryDate = calculateInclusiveExpiry(
+        effectiveStartDate,
+        targetPlan.duration_value,
+        targetPlan.duration_unit,
+      )
+    }
+
+    // 6. Overlap protection: check other non-cancelled memberships for this member
+    if (
+      effectiveStartDate !== existing.start_date ||
+      effectiveExpiryDate !== existing.expiry_date
+    ) {
+      const { data: otherMemberships, error: overlapErr } = await supabase
+        .from('memberships')
+        .select('id, start_date, expiry_date, status')
+        .eq('member_id', existing.member_id)
+        .neq('id', id)
+        .neq('status', 'cancelled')
+
+      if (overlapErr) throw overlapErr
+
+      const overlap = (otherMemberships ?? []).find(
+        m => m.start_date <= effectiveExpiryDate && m.expiry_date >= effectiveStartDate,
+      )
+
+      if (overlap) {
+        res.status(409).json({
+          success: false,
+          message: `Member already has an active membership valid from ${overlap.start_date} to ${overlap.expiry_date}. Cannot create overlapping active memberships.`,
+        })
+        return
+      }
+    }
+
+    // 7. Payment safety: check against amount already paid
+    if ('actual_fee' in body) {
+      const { data: paymentsData, error: payErr } = await supabase
+        .from('payments')
+        .select('amount')
+        .eq('membership_id', id)
+
+      if (payErr) throw payErr
+
+      const totalPaid = (paymentsData ?? []).reduce(
+        (sum, p) => sum + Number(p.amount || 0),
+        0,
+      )
+
+      if (effectiveActualFee < totalPaid - 0.005) {
+        res.status(400).json({
+          success: false,
+          message: `Actual fee (₹${effectiveActualFee}) cannot be less than the amount already paid (₹${totalPaid}).`,
+        })
+        return
+      }
+    }
+
+    // 8. Build updates payload
+    const updates: Record<string, unknown> = {}
+    if ('plan_id' in body) updates.plan_id = effectivePlanId
+    if ('start_date' in body) updates.start_date = effectiveStartDate
+    if ('plan_id' in body || 'start_date' in body) updates.expiry_date = effectiveExpiryDate
+    if ('actual_fee' in body) updates.actual_fee = effectiveActualFee
+    if (paymentDueDateProvided) updates.payment_due_date = effectivePaymentDueDate
+    if (isCancelling) updates.status = 'cancelled'
+
+    // 9. Execute membership update
+    const { data: updated, error: updateErr } = await supabase
       .from('memberships')
       .update(updates)
       .eq('id', id)
       .select('*, membership_plans(id, name, duration_value, duration_unit)')
       .single()
 
-    if (error?.code === 'PGRST116' || !updated) {
-      res.status(404).json({ success: false, message: 'Membership not found.' })
-      return
-    }
-    if (error) throw error
+    if (updateErr) throw updateErr
 
-    if (updates.status === 'cancelled') {
+    // 10. Reminder safety: invalidate obsolete scheduled reminders
+    const datesOrFeeChanged =
+      ('plan_id' in body && effectivePlanId !== existing.plan_id) ||
+      ('start_date' in body && effectiveStartDate !== existing.start_date) ||
+      ('actual_fee' in body && effectiveActualFee !== Number(existing.actual_fee)) ||
+      (paymentDueDateProvided && effectivePaymentDueDate !== existing.payment_due_date)
+
+    if (datesOrFeeChanged || isCancelling) {
+      await supabase
+        .from('reminders')
+        .update({
+          status: 'cancelled',
+          failure_reason: isCancelling
+            ? 'Cancelled: membership was cancelled'
+            : 'Cancelled: membership details updated',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('membership_id', id)
+        .eq('status', 'scheduled')
+    }
+
+    // 11. Audit logging
+    if (isCancelling) {
       await logAuditEvent({
         actorId: req.authUser?.id,
         entityType: 'membership',
@@ -662,6 +849,27 @@ export async function updateMembership(req: Request, res: Response): Promise<voi
         newData: {
           member_id: updated.member_id,
           status: 'cancelled',
+        },
+      })
+    } else {
+      await logAuditEvent({
+        actorId: req.authUser?.id,
+        entityType: 'membership',
+        entityId: id,
+        action: 'membership_updated',
+        previousData: {
+          plan_id: existing.plan_id,
+          start_date: existing.start_date,
+          expiry_date: existing.expiry_date,
+          actual_fee: existing.actual_fee,
+          payment_due_date: existing.payment_due_date,
+        },
+        newData: {
+          plan_id: updated.plan_id,
+          start_date: updated.start_date,
+          expiry_date: updated.expiry_date,
+          actual_fee: updated.actual_fee,
+          payment_due_date: updated.payment_due_date,
         },
       })
     }

@@ -328,17 +328,23 @@ export async function generateReminders(supabaseClient?: any): Promise<ReminderG
   ]
 
   const existingRemKeySet = new Set<string>()
+  const cancelledRemindersMap = new Map<string, string>() // dedupeKey -> reminderId
   if (allCandidateIds.length > 0) {
     const { data: existingReminders, error: remErr } = await supabase
       .from('reminders')
-      .select('member_id, membership_id, reminder_stage')
+      .select('id, member_id, membership_id, reminder_stage, status')
       .in('membership_id', allCandidateIds)
       .in('reminder_stage', AUTO_STAGES)
 
     if (remErr) throw remErr
 
-    for (const r of (existingReminders ?? []) as Array<{ member_id: string; membership_id: string; reminder_stage: string }>) {
-      existingRemKeySet.add(`${r.member_id}:${r.membership_id}:${r.reminder_stage}`)
+    for (const r of (existingReminders ?? []) as Array<{ id: string; member_id: string; membership_id: string; reminder_stage: string; status: string }>) {
+      const key = `${r.member_id}:${r.membership_id}:${r.reminder_stage}`
+      if (r.status === 'cancelled') {
+        cancelledRemindersMap.set(key, r.id)
+      } else {
+        existingRemKeySet.add(key)
+      }
     }
   }
 
@@ -350,6 +356,13 @@ export async function generateReminders(supabaseClient?: any): Promise<ReminderG
     membership_id: string
     template_id: string | null
     reminder_stage: ReminderStage
+    channel: ReminderChannel
+    scheduled_at: string
+    status: ReminderStatus
+  }> = []
+  const remindersToReactivate: Array<{
+    id: string
+    template_id: string | null
     channel: ReminderChannel
     scheduled_at: string
     status: ReminderStatus
@@ -387,6 +400,23 @@ export async function generateReminders(supabaseClient?: any): Promise<ReminderG
     }
 
     const template = templateLookup.get(`${stage}:${channel}`)
+
+    // If a previously cancelled reminder exists for this stage, reactivate it to avoid
+    // violating the (member_id, membership_id, reminder_stage) unique constraint.
+    const existingCancelledId = cancelledRemindersMap.get(dedupeKey)
+    if (existingCancelledId) {
+      remindersToReactivate.push({
+        id: existingCancelledId,
+        template_id: template?.id ?? null,
+        channel,
+        scheduled_at: new Date().toISOString(),
+        status: 'scheduled',
+      })
+      existingRemKeySet.add(dedupeKey)
+      cancelledRemindersMap.delete(dedupeKey)
+      return true
+    }
+
     remindersToInsert.push({
       member_id: member.id,
       membership_id: ms.id,
@@ -448,7 +478,7 @@ export async function generateReminders(supabaseClient?: any): Promise<ReminderG
     addCandidate('membership_expired', ms, member, dedupeKey)
   }
 
-  // 5. Insert all candidates in one batch
+  // 5. Insert or reactivate candidates
   if (remindersToInsert.length > 0) {
     const { data: inserted, error: insertErr } = await supabase
       .from('reminders')
@@ -459,7 +489,30 @@ export async function generateReminders(supabaseClient?: any): Promise<ReminderG
       console.error('[ReminderEngine] insert error:', insertErr)
       errors.push(insertErr.message)
     } else {
-      generatedCount = inserted?.length ?? remindersToInsert.length
+      generatedCount += inserted?.length ?? remindersToInsert.length
+    }
+  }
+
+  for (const reactivate of remindersToReactivate) {
+    const { error: reactivateErr } = await supabase
+      .from('reminders')
+      .update({
+        status: reactivate.status,
+        template_id: reactivate.template_id,
+        channel: reactivate.channel,
+        scheduled_at: reactivate.scheduled_at,
+        failure_reason: null,
+        claim_token: null,
+        claim_expires_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', reactivate.id)
+
+    if (reactivateErr) {
+      console.error('[ReminderEngine] reactivate error:', reactivateErr)
+      errors.push(reactivateErr.message)
+    } else {
+      generatedCount++
     }
   }
 

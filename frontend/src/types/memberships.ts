@@ -35,6 +35,8 @@ export interface RenewMembershipPayload {
 }
 
 export interface UpdateMembershipPayload {
+  plan_id?: string
+  start_date?: string
+  actual_fee?: number
   payment_due_date?: string | null
-  status?: MembershipStatus
 }
